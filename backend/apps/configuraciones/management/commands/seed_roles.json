@@ -1,0 +1,25 @@
+{
+  "sec_roles": [
+    {
+      "id": "8b9d09b2-0565-431b-8c18-a79e35522f60",
+      "name": "CONFIGURACIÓN PERMISO BASE",
+      "description": "ROLE CONFIGURACIÓN GENERAL",
+      "key_status_id": "e6c00f21-8e37-4c26-9f52-a3db842809da",
+      "all_access": false
+    },
+    {
+      "id": "99092d2d-42ba-4e40-a158-11f50876fa6e",
+      "name": "GASTOS E INGRESOS ALL PERMISSION",
+      "description": "ROLE GASTOS E INGRESOS ALL PERMISSION",
+      "key_status_id": "e6c00f21-8e37-4c26-9f52-a3db842809da",
+      "all_access": true
+    },
+    {
+      "id": "9726bc04-3c0e-4ff5-b547-d4192b403ff5",
+      "name": "GASTOS E INGRESOS PERMISSION LIMIT",
+      "description": "ROLE GASTIS E INGRESOS PERMISSION LIMIT",
+      "key_status_id": "e6c00f21-8e37-4c26-9f52-a3db842809da",
+      "all_access": false
+    }
+  ]
+}

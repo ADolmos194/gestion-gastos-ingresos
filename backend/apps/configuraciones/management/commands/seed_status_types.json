@@ -1,0 +1,9 @@
+{
+  "cfg_status_types": [
+    {
+      "id": "a0db2438-b763-43cd-95c5-c8eb0158ab3e",
+      "name": "Estado Maestras, Maestros Detalle y Sistemas",
+      "description": "Tipo para gestionar estados de maestras, maestros detalle y sistemas."
+    }
+  ]
+}

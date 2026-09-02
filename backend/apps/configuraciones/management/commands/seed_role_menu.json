@@ -1,0 +1,88 @@
+{
+  "sec_role_menu": [
+    {
+      "id": "ca24792d-a6d5-4bd2-93c4-8c8876775b00",
+      "description": "Dashboard",
+      "key_role_id": "9726bc04-3c0e-4ff5-b547-d4192b403ff5",
+      "key_menu_id": "90b36d3f-5681-4845-b08d-3179f5f8767a",
+      "key_status_id": "e6c00f21-8e37-4c26-9f52-a3db842809da"
+    },
+    {
+      "id": "4b03c30c-8144-4651-aae2-0b7ea5d1af6b",
+      "description": "Finanzas",
+      "key_role_id": "9726bc04-3c0e-4ff5-b547-d4192b403ff5",
+      "key_menu_id": "ae3c2f84-3182-4b7c-84a5-ead2553e78ae",
+      "key_status_id": "e6c00f21-8e37-4c26-9f52-a3db842809da"
+    },
+    {
+      "id": "1e2b616d-df5f-4b70-9542-45eed293ea49",
+      "description": "Deudas",
+      "key_role_id": "9726bc04-3c0e-4ff5-b547-d4192b403ff5",
+      "key_menu_id": "6de85eac-e8b7-4811-ac6c-e68d5d99c991",
+      "key_status_id": "e6c00f21-8e37-4c26-9f52-a3db842809da"
+    },
+    {
+      "id": "aae490b2-6a1d-48e4-b65e-bb74633a721b",
+      "description": "Préstamos",
+      "key_role_id": "9726bc04-3c0e-4ff5-b547-d4192b403ff5",
+      "key_menu_id": "ff2bbe87-e2fe-4265-8156-906192597deb",
+      "key_status_id": "e6c00f21-8e37-4c26-9f52-a3db842809da"
+    },
+    {
+      "id": "bbf0b105-8c9a-4c4c-8f96-7d9b49a170a9",
+      "description": "Ahorros",
+      "key_role_id": "9726bc04-3c0e-4ff5-b547-d4192b403ff5",
+      "key_menu_id": "509d3817-afad-4d2a-9506-a2b47de1f916",
+      "key_status_id": "e6c00f21-8e37-4c26-9f52-a3db842809da"
+    },
+    {
+      "id": "cf0fa59a-5d84-467f-87d0-2e59c8e657ce",
+      "description": "Inversiones",
+      "key_role_id": "9726bc04-3c0e-4ff5-b547-d4192b403ff5",
+      "key_menu_id": "8ce47b0f-99da-4bbd-8e2e-7f6428619882",
+      "key_status_id": "e6c00f21-8e37-4c26-9f52-a3db842809da"
+    },
+    {
+      "id": "a69214fc-f8f4-48a4-8c5e-c8731e5588ff",
+      "description": "Reportes",
+      "key_role_id": "9726bc04-3c0e-4ff5-b547-d4192b403ff5",
+      "key_menu_id": "12253277-16e0-4e94-9845-ada25b91c15c",
+      "key_status_id": "e6c00f21-8e37-4c26-9f52-a3db842809da"
+    },
+    {
+      "id": "ab69dfa4-4d3f-4311-aae7-9e68412f6350",
+      "description": "Configuraciones",
+      "key_role_id": "9726bc04-3c0e-4ff5-b547-d4192b403ff5",
+      "key_menu_id": "6f2e088c-ce1a-4e5b-8809-428eaffb5c77",
+      "key_status_id": "e6c00f21-8e37-4c26-9f52-a3db842809da"
+    },
+    {
+      "id": "53fbc37e-dfc0-48a7-8615-70c4e822a4c8",
+      "description": "Configuraciones > Maestras",
+      "key_role_id": "9726bc04-3c0e-4ff5-b547-d4192b403ff5",
+      "key_menu_id": "f13e76d1-95a1-428f-824a-e4d0579bbdd5",
+      "key_status_id": "e6c00f21-8e37-4c26-9f52-a3db842809da"
+    },
+    {
+      "id": "6c5910df-05e9-41d0-beb9-5a1ddf690db2",
+      "description": "Configuraciones > Maestras > Categorías",
+      "key_role_id": "9726bc04-3c0e-4ff5-b547-d4192b403ff5",
+      "key_menu_id": "a14af432-0fb2-4748-a91e-9e2178a899a0",
+      "key_status_id": "e6c00f21-8e37-4c26-9f52-a3db842809da"
+    },
+    {
+      "id": "db0ae08f-6096-4d2b-accb-155bc08d9631",
+      "description": "Configuraciones > Maestras > Cuentas",
+      "key_role_id": "9726bc04-3c0e-4ff5-b547-d4192b403ff5",
+      "key_menu_id": "35410550-f4cb-4dbf-b5b1-85c57915d741",
+      "key_status_id": "e6c00f21-8e37-4c26-9f52-a3db842809da"
+    },
+    {
+      "id": "37299a65-c6b4-4451-806f-683e1fb3ce31",
+      "description": "Configuraciones > Maestras > Monedas",
+      "key_role_id": "9726bc04-3c0e-4ff5-b547-d4192b403ff5",
+      "key_menu_id": "5b5ff6ef-3341-4723-b981-0c2bc37d4b55",
+      "key_status_id": "e6c00f21-8e37-4c26-9f52-a3db842809da"
+    }
+  ]
+}

@@ -1,0 +1,157 @@
+{
+  "cfg_status": [
+    {
+      "id": "e6c00f21-8e37-4c26-9f52-a3db842809da",
+      "key_status_type_id": "a0db2438-b763-43cd-95c5-c8eb0158ab3e",
+      "name": "Activo",
+      "abbreviation": "ACT",
+      "action": "activate",
+      "color": "#22c55e",
+      "icon": "check-circle"
+    },
+    {
+      "id": "dfc10955-ce06-4bc4-aeed-2a4a125931aa",
+      "key_status_type_id": "a0db2438-b763-43cd-95c5-c8eb0158ab3e",
+      "name": "Inactivo",
+      "abbreviation": "INA",
+      "action": "deactivate",
+      "color": "#ef4444",
+      "icon": "x-circle"
+    },
+    {
+      "id": "c2a50e81-d395-4f23-8569-3b7086d8d6a5",
+      "key_status_type_id": "a0db2438-b763-43cd-95c5-c8eb0158ab3e",
+      "name": "Bloqueado",
+      "abbreviation": "BLO",
+      "action": "block",
+      "color": "#f97316",
+      "icon": "lock"
+    },
+    {
+      "id": "6d7b231e-a1c8-456f-939e-58569456f759",
+      "key_status_type_id": "a0db2438-b763-43cd-95c5-c8eb0158ab3e",
+      "name": "Eliminado",
+      "abbreviation": "ELI",
+      "action": "delete",
+      "color": "#8b5cf6",
+      "icon": "trash-2"
+    },
+    {
+      "id": "08c95378-782d-4a25-9a90-90971b2f4628",
+      "key_status_type_id": "a0db2438-b763-43cd-95c5-c8eb0158ab3e",
+      "name": "Anulado",
+      "abbreviation": "ANU",
+      "action": "cancel",
+      "color": "#ef4444",
+      "icon": "x-circle"
+    },
+    {
+      "id": "72d3f78b-8b74-475f-8424-23547559b096",
+      "key_status_type_id": "a0db2438-b763-43cd-95c5-c8eb0158ab3e",
+      "name": "Vigente",
+      "abbreviation": "VIG",
+      "action": "activate",
+      "color": "#22c55e",
+      "icon": "check-circle"
+    },
+    {
+      "id": "a97b62ce-b67c-44f6-b98a-439a56e0f54b",
+      "key_status_type_id": "a0db2438-b763-43cd-95c5-c8eb0158ab3e",
+      "name": "Vencido",
+      "abbreviation": "VEN",
+      "action": "expire",
+      "color": "#ef4444",
+      "icon": "x-circle"
+    },
+    {
+      "id": "f39c381e-65e4-4b72-9f7b-17515f40f3a4",
+      "key_status_type_id": "a0db2438-b763-43cd-95c5-c8eb0158ab3e",
+      "name": "Restaurado",
+      "abbreviation": "RES",
+      "action": "restore",
+      "color": "#10b981",
+      "icon": "edit"
+    },
+    {
+      "id": "f472b42d-e78f-4345-b97f-c0d2548a52f7",
+      "key_status_type_id": "a0db2438-b763-43cd-95c5-c8eb0158ab3e",
+      "name": "Restablecer",
+      "abbreviation": "RES",
+      "action": "reset",
+      "color": "#0ea5e9",
+      "icon": "rotate-ccw"
+    },
+    {
+      "id": "2c9f0d1a-3e4b-467c-825d-1f8e67c29b43",
+      "key_status_type_id": "a0db2438-b763-43cd-95c5-c8eb0158ab3e",
+      "name": "Sincronizado",
+      "abbreviation": "SIN",
+      "action": "sync",
+      "color": "#6366f1",
+      "icon": "refresh-cw"
+    },
+    {
+      "id": "fbbf242d-e78f-4345-b97f-c0d2548a52f7",
+      "key_status_type_id": "a0db2438-b763-43cd-95c5-c8eb0158ab3e",
+      "name": "Pendiente",
+      "abbreviation": "PEN",
+      "action": "pending",
+      "color": "#fbbf24",
+      "icon": "refresh-cw"
+    },
+    {
+      "id": "754a2fa4-6c07-4072-82fb-dc474733827a",
+      "key_status_type_id": "a0db2438-b763-43cd-95c5-c8eb0158ab3e",
+      "name": "Actualizado",
+      "abbreviation": "ACT",
+      "action": "update",
+      "color": "#10b981",
+      "icon": "edit"
+    },
+    {
+      "id": "cd95059a-03c3-49b0-b7f1-829d3f25f8a4",
+      "key_status_type_id": "a0db2438-b763-43cd-95c5-c8eb0158ab3e",
+      "name": "Aprobado",
+      "abbreviation": "APR",
+      "action": "approve",
+      "color": "#10b981",
+      "icon": "check"
+    },
+    {
+      "id": "12c6c518-089e-49ea-880e-137ae1fdd478",
+      "key_status_type_id": "a0db2438-b763-43cd-95c5-c8eb0158ab3e",
+      "name": "Rechazado",
+      "abbreviation": "REJ",
+      "action": "reject",
+      "color": "#ef4444",
+      "icon": "x"
+    },
+    {
+      "id": "b33192a6-5425-40d1-a430-9c4f509134f8",
+      "key_status_type_id": "a0db2438-b763-43cd-95c5-c8eb0158ab3e",
+      "name": "Procesando",
+      "abbreviation": "PRO",
+      "action": "process",
+      "color": "#3b82f6",
+      "icon": "loader-circle"
+    },
+    {
+      "id": "4bfca3a3-6083-4677-a2ae-f64de3e18607",
+      "key_status_type_id": "a0db2438-b763-43cd-95c5-c8eb0158ab3e",
+      "name": "Completado",
+      "abbreviation": "COM",
+      "action": "complete",
+      "color": "#22c55e",
+      "icon": "check-circle"
+    },
+    {
+      "id": "1ea1664d-b2d4-4277-b101-27a43ff54738",
+      "key_status_type_id": "a0db2438-b763-43cd-95c5-c8eb0158ab3e",
+      "name": "Error",
+      "abbreviation": "ERR",
+      "action": "fail",
+      "color": "#ef4444",
+      "icon": "alert-circle"
+    }
+  ]
+}

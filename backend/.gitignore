@@ -1,0 +1,29 @@
+# Entorno virtual
+venv/
+env/
+.venv/
+
+# Variables de entorno
+.env
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+
+# Django
+db.sqlite3
+staticfiles/
+media/
+
+# Docker
+*.log
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+
+# Notas locales con credenciales de prueba, nunca se suben al repo
+CREDENCIALES.local.md

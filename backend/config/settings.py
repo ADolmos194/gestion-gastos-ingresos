@@ -1,0 +1,223 @@
+"""
+Django settings for config project.
+"""
+
+from pathlib import Path
+import os
+
+import dj_database_url
+from dotenv import load_dotenv
+
+# Build paths inside the project like this: BASE_DIR / 'subdir'.
+BASE_DIR = Path(__file__).resolve().parent.parent
+
+# Carga variables desde el .env ubicado en la raíz del proyecto (backend/)
+load_dotenv(BASE_DIR / '.env')
+
+
+def env_bool(name, default=False):
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() in ('1', 'true', 'yes', 'on')
+
+
+# SECURITY WARNING: keep the secret key used in production secret!
+SECRET_KEY = os.getenv('DJANGO_SECRET_KEY', 'django-insecure-change-me-in-env')
+
+# SECURITY WARNING: don't run with debug turned on in production!
+DEBUG = env_bool('DJANGO_DEBUG', True)
+
+ALLOWED_HOSTS = [
+    host.strip()
+    for host in os.getenv('DJANGO_ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',')
+    if host.strip()
+]
+
+
+# Application definition
+
+INSTALLED_APPS = [
+    'django.contrib.admin',
+    'django.contrib.auth',
+    'django.contrib.contenttypes',
+    'django.contrib.sessions',
+    'django.contrib.messages',
+    'django.contrib.staticfiles',
+
+    # Terceros
+    'rest_framework',
+    'corsheaders',
+
+    # Apps propias
+    'apps.autenticacion',
+    'apps.seguridad',
+    'apps.configuraciones',
+    'apps.historial',
+]
+
+MIDDLEWARE = [
+    'django.middleware.security.SecurityMiddleware',
+    'corsheaders.middleware.CorsMiddleware',
+    'django.contrib.sessions.middleware.SessionMiddleware',
+    'django.middleware.common.CommonMiddleware',
+    'django.middleware.csrf.CsrfViewMiddleware',
+    'django.contrib.auth.middleware.AuthenticationMiddleware',
+    'apps.autenticacion.middleware.FreeApiMiddleware',
+    'django.contrib.messages.middleware.MessageMiddleware',
+    'django.middleware.clickjacking.XFrameOptionsMiddleware',
+]
+
+ROOT_URLCONF = 'config.urls'
+
+TEMPLATES = [
+    {
+        'BACKEND': 'django.template.backends.django.DjangoTemplates',
+        'DIRS': [],
+        'APP_DIRS': True,
+        'OPTIONS': {
+            'context_processors': [
+                'django.template.context_processors.request',
+                'django.contrib.auth.context_processors.auth',
+                'django.contrib.messages.context_processors.messages',
+            ],
+        },
+    },
+]
+
+WSGI_APPLICATION = 'config.wsgi.application'
+
+
+# Database
+# https://docs.djangoproject.com/en/6.0/ref/settings/#databases
+# Siempre Postgres: en producción vía DATABASE_URL (Supabase, en .env); en
+# desarrollo local, el Postgres levantado por compose.dev.yml (mismo valor
+# por defecto).
+
+DATABASE_URL = os.getenv(
+    'DATABASE_URL',
+    'postgresql://gastos_ingresos:gastos_ingresos_pass@localhost:5432/gastos_ingresos_local',
+)
+
+DATABASES = {
+    'default': dj_database_url.parse(DATABASE_URL, conn_max_age=600)
+}
+
+
+AUTH_USER_MODEL = 'autenticacion.User'
+
+
+# Password validation
+# https://docs.djangoproject.com/en/6.0/ref/settings/#auth-password-validators
+
+AUTH_PASSWORD_VALIDATORS = [
+    {
+        'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator',
+    },
+    {
+        'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator',
+    },
+    {
+        'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator',
+    },
+    {
+        'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator',
+    },
+]
+
+
+# Django REST Framework
+REST_FRAMEWORK = {
+    'DEFAULT_AUTHENTICATION_CLASSES': [
+        'rest_framework.authentication.SessionAuthentication',
+    ],
+    'DEFAULT_PERMISSION_CLASSES': [
+        'apps.autenticacion.permissions.IsAuthenticatedOrFreeApi',
+    ],
+    'DEFAULT_THROTTLE_RATES': {
+        # Límite de intentos de login por IP; el bloqueo de cuenta (User.is_locked)
+        # es la segunda capa de defensa contra fuerza bruta.
+        'login': '5/min',
+        # Límite de registros por IP, para frenar creación masiva de cuentas.
+        'register': '10/hour',
+        # Límite de solicitudes de recuperación/reseteo de contraseña por IP.
+        'password_reset': '5/hour',
+        # Límite de cambios de contraseña (usuario ya logueado) por IP.
+        'change_password': '10/hour',
+        # Límite de intentos de código (verificación de email o reset de contraseña) por IP.
+        # Defensa adicional a MAX_ATTEMPTS de VerificationCode, que limita por código individual.
+        'email_verify_confirm': '10/min',
+        # Límite de reenvíos de código por IP; el cooldown real (por usuario) vive en
+        # VerificationCode.has_recent_active, esto es una segunda capa por IP.
+        'email_verify_resend': '3/hour',
+    },
+}
+
+
+# CORS
+CORS_ALLOWED_ORIGINS = [
+    origin.strip()
+    for origin in os.getenv('CORS_ALLOWED_ORIGINS', 'http://localhost:3000').split(',')
+    if origin.strip()
+]
+# El login usa sesión por cookie: el frontend debe poder enviarla en peticiones cross-origin.
+CORS_ALLOW_CREDENTIALS = True
+
+# Orígenes de confianza para CSRF (requerido por Django cuando el frontend está en otro
+# origen/puerto que el backend, ej. localhost:3000 -> localhost:8000).
+CSRF_TRUSTED_ORIGINS = [
+    origin.strip()
+    for origin in os.getenv('CSRF_TRUSTED_ORIGINS', 'http://localhost:3000').split(',')
+    if origin.strip()
+]
+
+# Cookies de sesión / CSRF
+SESSION_COOKIE_HTTPONLY = True
+SESSION_COOKIE_SAMESITE = os.getenv('SESSION_COOKIE_SAMESITE', 'Lax')
+SESSION_COOKIE_SECURE = env_bool('SESSION_COOKIE_SECURE', not DEBUG)
+CSRF_COOKIE_SAMESITE = os.getenv('CSRF_COOKIE_SAMESITE', 'Lax')
+CSRF_COOKIE_SECURE = env_bool('CSRF_COOKIE_SECURE', not DEBUG)
+SESSION_COOKIE_AGE = int(os.getenv('SESSION_COOKIE_AGE', 60 * 60 * 8))  # 8 horas
+SESSION_SAVE_EVERY_REQUEST = True
+
+
+# Supabase (uso opcional del SDK además de la conexión directa a Postgres)
+SUPABASE_URL = os.getenv('SUPABASE_URL', '')
+SUPABASE_KEY = os.getenv('SUPABASE_KEY', '')
+
+
+# Email (códigos de verificación de cuenta y recuperación de contraseña)
+# En dev, por defecto imprime el correo en la consola/logs del backend en vez de enviarlo.
+EMAIL_BACKEND = os.getenv('EMAIL_BACKEND', 'django.core.mail.backends.console.EmailBackend')
+EMAIL_HOST = os.getenv('EMAIL_HOST', '')
+EMAIL_PORT = int(os.getenv('EMAIL_PORT', 587))
+EMAIL_HOST_USER = os.getenv('EMAIL_HOST_USER', '')
+EMAIL_HOST_PASSWORD = os.getenv('EMAIL_HOST_PASSWORD', '')
+EMAIL_USE_TLS = env_bool('EMAIL_USE_TLS', True)
+DEFAULT_FROM_EMAIL = os.getenv('DEFAULT_FROM_EMAIL', 'no-reply@gastos-ingresos.local')
+
+# Códigos de verificación de 6 dígitos (email al registrarse, reset de contraseña). Ver
+# apps.autenticacion.models.VerificationCode.
+VERIFICATION_CODE_TTL_MINUTES = int(os.getenv('VERIFICATION_CODE_TTL_MINUTES', 10))
+VERIFICATION_RESEND_COOLDOWN_SECONDS = int(os.getenv('VERIFICATION_RESEND_COOLDOWN_SECONDS', 60))
+
+
+# Internationalization
+# https://docs.djangoproject.com/en/6.0/topics/i18n/
+
+LANGUAGE_CODE = 'es'
+
+TIME_ZONE = 'America/Lima'
+
+USE_I18N = True
+
+USE_TZ = True
+
+
+# Static files (CSS, JavaScript, Images)
+# https://docs.djangoproject.com/en/6.0/howto/static-files/
+
+STATIC_URL = 'static/'
+STATIC_ROOT = BASE_DIR / 'staticfiles'
+
+DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'

@@ -1,0 +1,52 @@
+{
+  "sec_permissions": [
+    {
+      "id": "a78d6806-23e4-4d9e-8895-04908d22079e",
+      "decorator_name": "configuracion-categorias-read",
+      "api_url": "/api/configuraciones/categorias/",
+      "module_name": "configuracion-categorias-read",
+      "key_action_id": "04b71593-d02c-48b5-906c-93939e64dde4",
+      "key_status_id": "e6c00f21-8e37-4c26-9f52-a3db842809da"
+    },
+    {
+      "id": "28ccf6f0-7d17-48f3-9b73-96bbd4f92c25",
+      "decorator_name": "configuracion-categorias-create",
+      "api_url": "/api/configuraciones/categorias/bulk-save/#create",
+      "module_name": "Categorias_create",
+      "key_action_id": "c439e7aa-4b12-4704-9134-7316a64fbeae",
+      "key_status_id": "e6c00f21-8e37-4c26-9f52-a3db842809da"
+    },
+    {
+      "id": "1f71218e-d5a0-4f23-bd7d-a824bdaa18e1",
+      "decorator_name": "update",
+      "api_url": "/api/configuraciones/categorias/bulk-save/#update",
+      "module_name": "configuracion-categorias-update",
+      "key_action_id": "d630928b-1b0a-4d2d-8b31-b7e1e4fd6967",
+      "key_status_id": "e6c00f21-8e37-4c26-9f52-a3db842809da"
+    },
+    {
+      "id": "582f6f56-ccc6-4264-9232-38ade50774c2",
+      "decorator_name": "delete",
+      "api_url": "/api/configuraciones/categorias/bulk-save/#delete",
+      "module_name": "configuracion-categorias-delete",
+      "key_action_id": "5760e298-a039-4993-9d3c-0f4140e5cf63",
+      "key_status_id": "e6c00f21-8e37-4c26-9f52-a3db842809da"
+    },
+    {
+      "id": "9dbf2961-a9e0-46a2-a63e-13c3947098d1",
+      "decorator_name": "mport",
+      "api_url": "/api/configuraciones/categorias/import/",
+      "module_name": "configuracion-categorias-import",
+      "key_action_id": "4f8a65b3-8b75-493f-a3ef-2bacc0902221",
+      "key_status_id": "e6c00f21-8e37-4c26-9f52-a3db842809da"
+    },
+    {
+      "id": "f03deba0-af72-41d0-b17a-e5c8450d10de",
+      "decorator_name": "export",
+      "api_url": "/api/configuraciones/categorias/export/",
+      "module_name": "configuracion-categorias-export",
+      "key_action_id": "81c3eb5b-140a-41fa-a47d-f1d0d8ead7f2",
+      "key_status_id": "e6c00f21-8e37-4c26-9f52-a3db842809da"
+    }
+  ]
+}

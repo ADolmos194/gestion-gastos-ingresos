@@ -1,0 +1,54 @@
+{
+  "sec_events": [
+    {
+      "id": "03f06ffc-1a45-44d2-a3ae-2ac2b94aa158",
+      "name": "RECHAZADO",
+      "key_status_id": "e6c00f21-8e37-4c26-9f52-a3db842809da"
+    },
+    {
+      "id": "0e4aaa58-6d98-48b7-bd3b-70c33a47bdff",
+      "name": "RESTAURACIÓN",
+      "key_status_id": "e6c00f21-8e37-4c26-9f52-a3db842809da"
+    },
+    {
+      "id": "638e8e66-ade4-429d-b13f-ea2241e4c435",
+      "name": "REVERSIÓN",
+      "key_status_id": "e6c00f21-8e37-4c26-9f52-a3db842809da"
+    },
+    {
+      "id": "887d2ab5-519e-4dd9-b9c5-1c9318018515",
+      "name": "IMPORTACIÓN",
+      "key_status_id": "e6c00f21-8e37-4c26-9f52-a3db842809da"
+    },
+    {
+      "id": "ade2cc8a-24f3-4d26-bfe7-797ab77d720a",
+      "name": "APROBADO",
+      "key_status_id": "e6c00f21-8e37-4c26-9f52-a3db842809da"
+    },
+    {
+      "id": "bc0a82c2-868d-4382-bbc6-ca35fcce9e82",
+      "name": "EXPORTACIÓN",
+      "key_status_id": "e6c00f21-8e37-4c26-9f52-a3db842809da"
+    },
+    {
+      "id": "c4e7e285-07c0-4c3f-a2a4-f57cd0519184",
+      "name": "INACTIVACIÓN",
+      "key_status_id": "e6c00f21-8e37-4c26-9f52-a3db842809da"
+    },
+    {
+      "id": "da6ca671-486a-4dab-80b7-972bd9dde822",
+      "name": "INSERCIÓN",
+      "key_status_id": "e6c00f21-8e37-4c26-9f52-a3db842809da"
+    },
+    {
+      "id": "f4a3937b-2c2d-405e-87b1-2168d858210d",
+      "name": "SINCRONIZACIÓN",
+      "key_status_id": "e6c00f21-8e37-4c26-9f52-a3db842809da"
+    },
+    {
+      "id": "f9e705af-cd0e-4f9b-af1e-9f14c76ecba3",
+      "name": "ACTUALIZACIÓN",
+      "key_status_id": "e6c00f21-8e37-4c26-9f52-a3db842809da"
+    }
+  ]
+}

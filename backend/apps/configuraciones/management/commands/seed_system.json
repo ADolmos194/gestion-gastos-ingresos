@@ -1,0 +1,16 @@
+{
+  "cfg_system": [
+    {
+      "id": "086b7f60-495c-48ec-b662-6c678c67d4dc",
+      "name": "Sistema de Gestión de Gastos e Ingresos - Web",
+      "description": "Sistema de gestión de gastos e ingresos.",
+      "key_status_id": "e6c00f21-8e37-4c26-9f52-a3db842809da"
+    },
+    {
+      "id": "5e4ea273-c07d-4eaf-84a7-bbd493a5c738",
+      "name": "Sistema de Gestión de Gastos e Ingresos - Mobile",
+      "description": "Sistema de gestión de gastos e ingresos.",
+      "key_status_id": "e6c00f21-8e37-4c26-9f52-a3db842809da"
+    }
+  ]
+}

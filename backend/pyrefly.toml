@@ -1,0 +1,12 @@
+search-path = ["."]
+python-interpreter = "../venv/Scripts/python.exe"
+
+# Sin django-stubs, Pyrefly no conoce la magia de descriptores de los campos
+# de Django (un BooleanField se comporta como bool en tiempo de ejecución,
+# pero el checker solo ve la clase del campo). Estos códigos son ruido
+# constante en cualquier modelo Django, no bugs reales.
+[errors]
+bad-assignment = false
+bad-override-mutable-attribute = false
+unsupported-operation = false
+untyped-import = false

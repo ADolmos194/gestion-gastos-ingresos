@@ -1,0 +1,58 @@
+{
+  "sec_actions": [
+    {
+      "id": "04b71593-d02c-48b5-906c-93939e64dde4",
+      "name": "read",
+      "description": null,
+      "key_status_id": "e6c00f21-8e37-4c26-9f52-a3db842809da"
+    },
+    {
+      "id": "1700c3bb-0a5c-4f05-b753-74b2888f9e58",
+      "name": "restore",
+      "description": null,
+      "key_status_id": "e6c00f21-8e37-4c26-9f52-a3db842809da"
+    },
+    {
+      "id": "3ced7c01-6002-490d-8ae1-6ff7401c6e43",
+      "name": "sync",
+      "description": null,
+      "key_status_id": "e6c00f21-8e37-4c26-9f52-a3db842809da"
+    },
+    {
+      "id": "4f8a65b3-8b75-493f-a3ef-2bacc0902221",
+      "name": "import",
+      "description": null,
+      "key_status_id": "e6c00f21-8e37-4c26-9f52-a3db842809da"
+    },
+    {
+      "id": "5760e298-a039-4993-9d3c-0f4140e5cf63",
+      "name": "delete",
+      "description": null,
+      "key_status_id": "e6c00f21-8e37-4c26-9f52-a3db842809da"
+    },
+    {
+      "id": "81c3eb5b-140a-41fa-a47d-f1d0d8ead7f2",
+      "name": "export",
+      "description": null,
+      "key_status_id": "e6c00f21-8e37-4c26-9f52-a3db842809da"
+    },
+    {
+      "id": "c439e7aa-4b12-4704-9134-7316a64fbeae",
+      "name": "create",
+      "description": null,
+      "key_status_id": "e6c00f21-8e37-4c26-9f52-a3db842809da"
+    },
+    {
+      "id": "d630928b-1b0a-4d2d-8b31-b7e1e4fd6967",
+      "name": "update",
+      "description": null,
+      "key_status_id": "e6c00f21-8e37-4c26-9f52-a3db842809da"
+    },
+    {
+      "id": "e09e43d8-d86f-4a44-8d58-1c226de1528c",
+      "name": "inactivate",
+      "description": null,
+      "key_status_id": "e6c00f21-8e37-4c26-9f52-a3db842809da"
+    }
+  ]
+}

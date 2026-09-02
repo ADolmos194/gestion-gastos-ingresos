@@ -1,0 +1,16 @@
+{
+  "cfg_tipo_categorias": [
+    {
+      "id": "4b27e2cf-71a5-4760-ae4c-29b5259c0b91",
+      "name": "Gasto",
+      "description": "Categoría de gasto",
+      "key_status_id": "e6c00f21-8e37-4c26-9f52-a3db842809da"
+    },
+    {
+      "id": "6a0ad66a-1f6c-449d-883a-121b0b40da7f",
+      "name": "Ingreso",
+      "description": "Categoría de ingreso",
+      "key_status_id": "e6c00f21-8e37-4c26-9f52-a3db842809da"
+    }
+  ]
+}

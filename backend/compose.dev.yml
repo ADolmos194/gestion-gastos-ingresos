@@ -1,0 +1,55 @@
+name: gastos_ingresos
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: gastos_ingresos_postgres
+    restart: always
+    environment:
+      POSTGRES_DB: ${DB_NAME_DEFAULT:-gastos_ingresos_local}
+      POSTGRES_USER: ${DB_USER_DEFAULT:-gastos_ingresos}
+      POSTGRES_PASSWORD: ${DB_PASSWORD_DEFAULT:-gastos_ingresos_pass}
+    volumes:
+      - gastos_ingresos_postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5433:5432"
+    networks: [ gastos_ingresos_network ]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER_DEFAULT:-gastos_ingresos} -d ${DB_NAME_DEFAULT:-gastos_ingresos_local}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: gastos_ingresos_backend
+    volumes:
+      - .:/app
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      DJANGO_DEBUG: ${DJANGO_DEBUG:-True}
+      DATABASE_URL: postgres://${DB_USER_DEFAULT:-gastos_ingresos}:${DB_PASSWORD_DEFAULT:-gastos_ingresos_pass}@postgres:5432/${DB_NAME_DEFAULT:-gastos_ingresos_local}
+    command:
+      - /bin/sh
+      - -lc
+      - |
+        python manage.py migrate &&
+        python manage.py seed_local_db &&
+        python manage.py runserver 0.0.0.0:8000
+    networks:
+      - gastos_ingresos_network
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+networks:
+  gastos_ingresos_network:
+    driver: bridge
+
+volumes:
+  gastos_ingresos_postgres_data:
