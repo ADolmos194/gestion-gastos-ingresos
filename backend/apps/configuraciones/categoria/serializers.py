@@ -4,10 +4,16 @@ from .models import Categoria, TipoCategoria
 
 
 class TipoCategoriaSerializer(serializers.ModelSerializer):
+    # Mismo criterio que TipoCuentaSerializer (ver cuenta/serializers.py): status/status_id
+    # solo los usa bulk_save_tipos_categoria, list_tipos_categoria (el dropdown) sigue
+    # pidiendo nada más que id/name en la práctica.
+    status = serializers.CharField(source="key_status.name", read_only=True)
+    status_id = serializers.UUIDField(source="key_status_id", read_only=True)
+
     class Meta:
         model = TipoCategoria
-        fields = ["id", "name"]
-        read_only_fields = fields
+        fields = ["id", "name", "description", "status", "status_id", "creation_date", "update_date"]
+        read_only_fields = ["id", "status", "status_id", "creation_date", "update_date"]
 
 
 class CategoriaSerializer(serializers.ModelSerializer):

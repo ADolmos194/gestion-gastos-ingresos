@@ -45,3 +45,17 @@ def tipo_invalido(tipo_name: str) -> str:
 
 def moneda_invalida(moneda_code: str) -> str:
     return f'Moneda "{moneda_code}" inválida.'
+
+
+# CRUD de Tipo de Cuenta (catálogo, ver bulk_save_tipos_cuenta) — mismos permisos que
+# Cuenta (configuracion-cuentas-*), es un sub-recurso de ese dominio, no uno nuevo.
+def tipo_nombre_duplicado(name: str) -> str:
+    return f'Ya existe un tipo de cuenta llamado "{name}".'
+
+
+def tipo_no_existe(tipo_id) -> str:
+    return f"El tipo de cuenta {tipo_id} no existe."
+
+
+def tipo_en_uso(name: str) -> str:
+    return f'El tipo de cuenta "{name}" está en uso por al menos una cuenta y no se puede anular/inactivar.'

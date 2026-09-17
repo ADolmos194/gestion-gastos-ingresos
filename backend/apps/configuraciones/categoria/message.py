@@ -43,3 +43,17 @@ def nombre_duplicado(name: str) -> str:
 
 def tipo_invalido(tipo_name: str) -> str:
     return f'Tipo "{tipo_name}" inválido (usar Gasto o Ingreso).'
+
+
+# CRUD de Tipo de Categoría (catálogo, ver bulk_save_tipos_categoria) — mismos permisos
+# que Categoria (configuracion-categorias-*), sub-recurso de ese dominio.
+def tipo_nombre_duplicado(name: str) -> str:
+    return f'Ya existe un tipo de categoría llamado "{name}".'
+
+
+def tipo_no_existe(tipo_id) -> str:
+    return f"El tipo de categoría {tipo_id} no existe."
+
+
+def tipo_en_uso(name: str) -> str:
+    return f'El tipo de categoría "{name}" está en uso por al menos una categoría y no se puede anular/inactivar.'

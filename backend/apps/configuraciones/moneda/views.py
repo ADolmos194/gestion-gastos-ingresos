@@ -1,5 +1,6 @@
 import base64
 import io
+import logging
 from collections.abc import Callable
 from datetime import timedelta
 from functools import partial
@@ -29,11 +30,14 @@ from ..services import (
     JOB_PROCESSING_STATUS_NAME,
     VOIDED_STATUS_NAME,
     get_status_by_name,
+    lock_duplicate_guard,
 )
 from ..tasks import run_monedas_import_validation_job
 from . import constants, message
 from .models import Moneda, MonedaImportJob
 from .serializers import MonedaSerializer
+
+logger = logging.getLogger(__name__)
 
 _MODULO = "configuraciones.moneda"
 _TABLA = Moneda._meta.db_table
@@ -121,6 +125,8 @@ def _find_blocking_duplicate(usuario, code: str, exclude_id=None) -> Moneda | No
 def _crear_monedas(payload: list[dict], usuario, active_status) -> None:
     for row in payload:
         code = (row.get("code") or "").strip().upper()
+        if code:
+            lock_duplicate_guard(_TABLA, usuario.id, code)
         if code and _find_blocking_duplicate(usuario, code):
             raise ValidationError(message.codigo_duplicado(code))
         serializer = MonedaSerializer(data=row)
@@ -144,6 +150,7 @@ def _actualizar_monedas(payload: list[dict], usuario) -> None:
             raise ValidationError(message.moneda_no_existe(moneda_id))
         new_code = (row.get("code") or "").strip().upper()
         if new_code and new_code != moneda.code.strip().upper():
+            lock_duplicate_guard(_TABLA, usuario.id, new_code)
             if _find_blocking_duplicate(usuario, new_code, exclude_id=moneda.id):
                 raise ValidationError(message.codigo_duplicado(new_code))
         antes = snapshot(moneda)
@@ -427,6 +434,7 @@ def run_monedas_import_validation_job_body(job_id, file_bytes: bytes, user_id) -
             key_status=done_status, result={"rows": preview_rows, "errors": errors}
         )
     except Exception as exc:
+        logger.exception("Falló la validación de import de monedas (job_id=%s)", job_id)
         error_status = get_status_by_name(JOB_ERROR_STATUS_NAME)
         MonedaImportJob.objects.filter(pk=job_id).update(
             key_status=error_status, error_message=_job_error_message(exc)
@@ -442,6 +450,7 @@ def start_monedas_import_validate(request):
     uploaded = request.FILES.get("file")
     if uploaded is None:
         raise ValidationError(message.FALTA_ARCHIVO)
+    excel_utils.validate_import_upload(uploaded)
     file_bytes = uploaded.read()
 
     MonedaImportJob.objects.filter(
@@ -484,6 +493,8 @@ def monedas_import_validate_status(request, job_id):
 @api_view(["POST"])
 def import_monedas(request):
     uploaded = request.FILES.get("file")
+    if uploaded is not None:
+        excel_utils.validate_import_upload(uploaded)
     _, errors, to_create, to_reactivate = _parse_monedas_file(uploaded, request.user)
 
     if errors:

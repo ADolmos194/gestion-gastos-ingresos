@@ -5,10 +5,16 @@ from .models import Cuenta, TipoCuenta
 
 
 class TipoCuentaSerializer(serializers.ModelSerializer):
+    # status/status_id solo los usa bulk_save_tipos_cuenta (la grilla de catálogo, si
+    # alguna vez la hay) — list_tipos_cuenta (el dropdown de Cuentas) sigue pidiendo nada
+    # más que id/name en la práctica, los campos de más no le rompen nada al no usarlos.
+    status = serializers.CharField(source="key_status.name", read_only=True)
+    status_id = serializers.UUIDField(source="key_status_id", read_only=True)
+
     class Meta:
         model = TipoCuenta
-        fields = ["id", "name"]
-        read_only_fields = fields
+        fields = ["id", "name", "description", "status", "status_id", "creation_date", "update_date"]
+        read_only_fields = ["id", "status", "status_id", "creation_date", "update_date"]
 
 
 class CuentaSerializer(serializers.ModelSerializer):

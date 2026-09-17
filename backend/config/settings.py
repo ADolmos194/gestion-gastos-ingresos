@@ -139,6 +139,15 @@ REST_FRAMEWORK = {
     'DEFAULT_PERMISSION_CLASSES': [
         'apps.autenticacion.permissions.IsAuthenticatedOrFreeApi',
     ],
+    # Sin esto, DRF expone por default BrowsableAPIRenderer/AdminRenderer: una consola HTML
+    # interactiva de la API (con formularios para probar cada endpoint) en cualquier request
+    # que pida text/html — nadie del frontend la usa (siempre pide JSON), y AdminRenderer
+    # tuvo una falla real (CVE PYSEC-2026-3828, ya parcheada en la versión de DRF que usamos,
+    # pero exponer una consola de administración de la API en producción no es buena
+    # práctica de por sí, con o sin ese bug puntual).
+    'DEFAULT_RENDERER_CLASSES': [
+        'rest_framework.renderers.JSONRenderer',
+    ],
     'DEFAULT_THROTTLE_RATES': {
         # Límite de intentos de login por IP; el bloqueo de cuenta (User.is_locked)
         # es la segunda capa de defensa contra fuerza bruta.
@@ -281,3 +290,51 @@ CELERY_TIMEZONE = TIME_ZONE
 # al arrancar) — sin esto, Celery 6 lo va a apagar por default y el worker no va a
 # reintentar si Redis tarda en levantar (p.ej. al arrancar todo el stack junto).
 CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
+
+
+# Logging — antes no había ningún LOGGING configurado acá: todos los logger.info/warning/
+# error que ya existen en el código (login fallido, cuenta bloqueada, importaciones, etc.,
+# ver p.ej. apps/autenticacion/views.py) caían al logger raíz de Django sin ningún formato
+# explícito. A consola (no a archivo): en Docker, gunicorn/runserver/celery ya mandan stdout
+# a `docker logs` — un archivo adentro del contenedor se perdería en cada restart/deploy y
+# necesitaría su propio volumen para nada.
+LOG_LEVEL = os.getenv('DJANGO_LOG_LEVEL', 'INFO')
+
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'verbose': {
+            'format': '{asctime} {levelname} {name} {message}',
+            'style': '{',
+        },
+    },
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+            'formatter': 'verbose',
+        },
+    },
+    'root': {
+        'handlers': ['console'],
+        'level': LOG_LEVEL,
+    },
+    'loggers': {
+        # WARNING (no LOG_LEVEL): en INFO, django.db loguea cada query ejecutada — demasiado
+        # ruido para uso normal. Subir a DEBUG con DJANGO_DB_LOG_LEVEL solo para diagnosticar
+        # algo puntual.
+        'django': {
+            'handlers': ['console'],
+            'level': os.getenv('DJANGO_DB_LOG_LEVEL', 'WARNING'),
+            'propagate': False,
+        },
+        # Cubre a todos los logger = logging.getLogger(__name__) de "apps.*" por jerarquía
+        # de nombres (apps.autenticacion.views, apps.configuraciones.categoria.views, etc.)
+        # sin tener que declarar cada módulo a mano.
+        'apps': {
+            'handlers': ['console'],
+            'level': LOG_LEVEL,
+            'propagate': False,
+        },
+    },
+}

@@ -3,6 +3,7 @@ a propósito, ya que todo maestro tipo-planilla del módulo Configuraciones (Cat
 futuro Cuentas/Monedas/etc.) arma sus archivos con el mismo estilo, no solo Categorías.
 """
 
+import zipfile
 from io import BytesIO
 
 import pandas as pd
@@ -10,8 +11,47 @@ from django.http import HttpResponse
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.worksheet import Worksheet
+from rest_framework.exceptions import ValidationError
 
 XLSX_CONTENT_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+# nginx ya corta en 20m (ver nginx/nginx.conf, client_max_body_size) — este límite es más
+# chico a propósito: nada que ver acá adentro necesita un .xlsx de importación tan grande
+# (Categorías/Monedas/Cuentas son catálogos, no transacciones), y sin este tope un archivo
+# de varios MB se lee entero en memoria (uploaded.read()) antes de que pandas lo procese.
+MAX_IMPORT_FILE_SIZE_BYTES = 10 * 1024 * 1024
+
+# Un .xlsx es un .zip: el tamaño COMPRIMIDO de arriba no evita un "zip bomb" (un archivo
+# chico que descomprime a varios GB) — 100 MB descomprimidos ya es generoso para cualquier
+# catálogo real (Categorías/Monedas/Cuentas nunca llegan ahí).
+MAX_UNCOMPRESSED_SIZE_BYTES = 100 * 1024 * 1024
+
+
+def validate_import_upload(uploaded) -> None:
+    """Valida un archivo de import ANTES de que _parse_*_file lo procese: tamaño
+    comprimido (validate_import_file_size, ya existía) y ahora también tamaño
+    descomprimido, para cerrar el zip bomb.
+
+    zipfile.ZipFile solo lee el directorio central del zip (los tamaños declarados por
+    entrada) para armar la lista de infolist() — no descomprime ningún contenido, así que
+    esto es barato aunque el archivo sea, de hecho, un zip bomb real.
+    """
+    if uploaded.size > MAX_IMPORT_FILE_SIZE_BYTES:
+        max_mb = MAX_IMPORT_FILE_SIZE_BYTES // (1024 * 1024)
+        raise ValidationError(f"El archivo supera el tamaño máximo permitido ({max_mb} MB).")
+
+    uploaded.seek(0)
+    try:
+        with zipfile.ZipFile(uploaded) as zf:
+            total_uncompressed = sum(info.file_size for info in zf.infolist())
+    except zipfile.BadZipFile as exc:
+        raise ValidationError("El archivo no es un .xlsx válido.") from exc
+    finally:
+        uploaded.seek(0)
+
+    if total_uncompressed > MAX_UNCOMPRESSED_SIZE_BYTES:
+        max_mb = MAX_UNCOMPRESSED_SIZE_BYTES // (1024 * 1024)
+        raise ValidationError(f"El archivo parece inválido (descomprime a más de {max_mb} MB).")
 
 # Mismos colores que ya usa la grilla en pantalla (verde para Activo, gris tachado para
 # Cancelado) — para que el Excel no desentone con lo que el usuario ve en la app.

@@ -1,5 +1,6 @@
 import base64
 import io
+import logging
 from collections.abc import Callable
 from datetime import timedelta
 from functools import partial
@@ -30,18 +31,27 @@ from ..services import (
     JOB_PROCESSING_STATUS_NAME,
     VOIDED_STATUS_NAME,
     get_status_by_name,
+    lock_duplicate_guard,
 )
 from ..tasks import run_cuentas_import_validation_job
 from . import constants, message
 from .models import Cuenta, CuentaImportJob, TipoCuenta
 from .serializers import CuentaSerializer, TipoCuentaSerializer
 
+logger = logging.getLogger(__name__)
+
 _MODULO = "configuraciones.cuenta"
 _TABLA = Cuenta._meta.db_table
+_TABLA_TIPO = TipoCuenta._meta.db_table
 
 # Para no repetir modulo/nom_tabla en cada punto de escritura de este módulo.
 _registrar_creacion = partial(registrar_creacion, modulo=_MODULO, nom_tabla=_TABLA)
 _registrar_actualizacion = partial(registrar_actualizacion, modulo=_MODULO, nom_tabla=_TABLA)
+
+# Mismo criterio que categoria/views.py: nom_tabla="cfg_tipo_cuentas", no el de Cuenta —
+# si no, el historial de un Tipo quedaría grabado como si fuera de "cfg_cuentas".
+_registrar_creacion_tipo = partial(registrar_creacion, modulo=_MODULO, nom_tabla=_TABLA_TIPO)
+_registrar_actualizacion_tipo = partial(registrar_actualizacion, modulo=_MODULO, nom_tabla=_TABLA_TIPO)
 
 
 def _user_cuentas(user):
@@ -65,6 +75,139 @@ def list_tipos_cuenta(request):
     """Catálogo de Banco/Efectivo/Billetera: alimenta el dropdown de la columna Tipo en la
     grilla."""
     tipos = TipoCuenta.objects.filter(key_status__name=ACTIVE_STATUS_NAME).order_by("name")
+    return Response(TipoCuentaSerializer(tipos, many=True).data)
+
+
+# Catálogo compartido entre todos los usuarios (TipoCuenta no tiene key_user, a diferencia
+# de Cuenta) — por eso acá no hay "_find_blocking_duplicate(usuario, ...)" como en el resto
+# del módulo, la unicidad de nombre es global, no por usuario.
+def _find_blocking_tipo_duplicate(name: str, exclude_id=None) -> TipoCuenta | None:
+    qs = TipoCuenta.objects.filter(name__iexact=name).exclude(key_status__name=VOIDED_STATUS_NAME)
+    if exclude_id:
+        qs = qs.exclude(id=exclude_id)
+    return qs.select_related("key_status").first()
+
+
+def _tipo_en_uso(tipo_id) -> bool:
+    # "En uso" = alguna Cuenta (de cualquier usuario) todavía lo referencia y no está
+    # Anulada/Eliminada — anular/inactivar el tipo dejaría esas cuentas con un tipo que ya
+    # no aparece en el dropdown (ver tipoNames en CuentasPage.tsx), sin forma de re-editarlas.
+    return (
+        Cuenta.objects.filter(key_tipo_id=tipo_id)
+        .exclude(key_status__name__in=(VOIDED_STATUS_NAME, "Eliminado"))
+        .exists()
+    )
+
+
+def _crear_tipos_cuenta(payload: list[dict], usuario, active_status) -> None:
+    for row in payload:
+        name = (row.get("name") or "").strip()
+        if name:
+            lock_duplicate_guard(TipoCuenta._meta.db_table, "global", name)
+            if _find_blocking_tipo_duplicate(name):
+                raise ValidationError(message.tipo_nombre_duplicado(name))
+        serializer = TipoCuentaSerializer(data=row)
+        serializer.is_valid(raise_exception=True)
+        tipo = serializer.save(key_status=active_status, key_creator_user=usuario, key_updater_user=usuario)
+        _registrar_creacion_tipo(usuario=usuario, instance=tipo)
+
+
+def _actualizar_tipos_cuenta(payload: list[dict], usuario) -> None:
+    for row in payload:
+        tipo_id = row.get("id")
+        if not tipo_id:
+            raise ValidationError(message.UPDATE_SIN_ID)
+        tipo = TipoCuenta.objects.filter(id=tipo_id).first()
+        if tipo is None:
+            raise ValidationError(message.tipo_no_existe(tipo_id))
+        new_name = (row.get("name") or "").strip()
+        if new_name and new_name.lower() != tipo.name.strip().lower():
+            lock_duplicate_guard(TipoCuenta._meta.db_table, "global", new_name)
+            if _find_blocking_tipo_duplicate(new_name, exclude_id=tipo.id):
+                raise ValidationError(message.tipo_nombre_duplicado(new_name))
+        antes = snapshot(tipo)
+        serializer = TipoCuentaSerializer(tipo, data=row, partial=True)
+        serializer.is_valid(raise_exception=True)
+        tipo = serializer.save(key_updater_user=usuario)
+        _registrar_actualizacion_tipo(usuario=usuario, antes=antes, despues_instance=tipo)
+
+
+def _anular_o_inactivar_tipos_cuenta(tipo_ids: list[str], usuario, target_status, not_found_msg: str) -> None:
+    tipos = list(TipoCuenta.objects.filter(id__in=tipo_ids).select_related("key_status"))
+    if len(tipos) != len(set(tipo_ids)):
+        raise ValidationError(not_found_msg)
+    for tipo in tipos:
+        if _tipo_en_uso(tipo.id):
+            raise ValidationError(message.tipo_en_uso(tipo.name))
+
+    antes_por_id = {tipo.id: snapshot(tipo) for tipo in tipos}
+    TipoCuenta.objects.filter(id__in=tipo_ids).update(key_status=target_status, key_updater_user=usuario)
+    for tipo in tipos:
+        tipo.key_status = target_status
+        tipo.key_updater_user = usuario
+        evento = "delete" if target_status.name == VOIDED_STATUS_NAME else "update"
+        _registrar_actualizacion_tipo(usuario=usuario, antes=antes_por_id[tipo.id], despues_instance=tipo, evento=evento)
+
+
+def _restaurar_tipos_cuenta(tipo_ids: list[str], usuario, active_status) -> None:
+    tipos = list(TipoCuenta.objects.filter(id__in=tipo_ids).select_related("key_status"))
+    if len(tipos) != len(set(tipo_ids)):
+        raise ValidationError(message.RESTAURAR_NO_EXISTE)
+
+    antes_por_id = {tipo.id: snapshot(tipo) for tipo in tipos}
+    TipoCuenta.objects.filter(id__in=tipo_ids).update(key_status=active_status, key_updater_user=usuario)
+    for tipo in tipos:
+        tipo.key_status = active_status
+        tipo.key_updater_user = usuario
+        _registrar_actualizacion_tipo(usuario=usuario, antes=antes_por_id[tipo.id], despues_instance=tipo)
+
+
+@log_data_access
+@require_permission()
+@api_view(["POST"])
+def bulk_save_tipos_cuenta(request):
+    """CRUD del catálogo de Tipo de Cuenta — mismo contrato que bulk_save_cuentas, pero sin
+    key_user (es un catálogo global, no por usuario) y reutilizando los permisos de Cuenta
+    (configuracion-cuentas-*): es un sub-recurso de ese dominio, no uno nuevo con su propio
+    permiso. Sin UI todavía (se administra por API/admin de Django), pero ya disponible
+    para cuando haga falta."""
+    access = build_user_access(request.user)
+    created_payload = request.data.get("created") or []
+    updated_payload = request.data.get("updated") or []
+    voided_ids = request.data.get("voided") or []
+    restored_ids = request.data.get("restored") or []
+    inactivated_ids = request.data.get("inactivated") or []
+
+    if created_payload and not _has_permission(access, constants.PERM_CREATE):
+        raise PermissionDenied(message.NO_PERMISO_CREAR)
+    if updated_payload and not _has_permission(access, constants.PERM_UPDATE):
+        raise PermissionDenied(message.NO_PERMISO_EDITAR)
+    if voided_ids and not _has_permission(access, constants.PERM_DELETE):
+        raise PermissionDenied(message.NO_PERMISO_ANULAR)
+    if restored_ids and not _has_permission(access, constants.PERM_UPDATE):
+        raise PermissionDenied(message.NO_PERMISO_EDITAR)
+    if inactivated_ids and not _has_permission(access, constants.PERM_UPDATE):
+        raise PermissionDenied(message.NO_PERMISO_EDITAR)
+
+    active_status = get_status_by_name(ACTIVE_STATUS_NAME)
+    voided_status = get_status_by_name(VOIDED_STATUS_NAME)
+    inactive_status = get_status_by_name(INACTIVE_STATUS_NAME)
+
+    with transaction.atomic():
+        if created_payload:
+            _crear_tipos_cuenta(created_payload, request.user, active_status)
+        if updated_payload:
+            _actualizar_tipos_cuenta(updated_payload, request.user)
+        if voided_ids:
+            _anular_o_inactivar_tipos_cuenta(voided_ids, request.user, voided_status, message.ANULAR_NO_EXISTE)
+        if restored_ids:
+            _restaurar_tipos_cuenta(restored_ids, request.user, active_status)
+        if inactivated_ids:
+            _anular_o_inactivar_tipos_cuenta(
+                inactivated_ids, request.user, inactive_status, message.INACTIVAR_NO_EXISTE
+            )
+
+    tipos = TipoCuenta.objects.order_by("key_status__name", "name")
     return Response(TipoCuentaSerializer(tipos, many=True).data)
 
 
@@ -127,6 +270,8 @@ def _find_blocking_duplicate(usuario, name: str, exclude_id=None) -> Cuenta | No
 def _crear_cuentas(payload: list[dict], usuario, active_status) -> None:
     for row in payload:
         name = (row.get("name") or "").strip()
+        if name:
+            lock_duplicate_guard(_TABLA, usuario.id, name)
         if name and _find_blocking_duplicate(usuario, name):
             raise ValidationError(message.nombre_duplicado(name))
         serializer = CuentaSerializer(data=row, context={"usuario": usuario})
@@ -150,6 +295,7 @@ def _actualizar_cuentas(payload: list[dict], usuario) -> None:
             raise ValidationError(message.cuenta_no_existe(cuenta_id))
         new_name = (row.get("name") or "").strip()
         if new_name and new_name.lower() != cuenta.name.strip().lower():
+            lock_duplicate_guard(_TABLA, usuario.id, new_name)
             if _find_blocking_duplicate(usuario, new_name, exclude_id=cuenta.id):
                 raise ValidationError(message.nombre_duplicado(new_name))
         antes = snapshot(cuenta)
@@ -488,8 +634,12 @@ def run_cuentas_import_validation_job_body(job_id, file_bytes: bytes, user_id) -
             key_status=done_status, result={"rows": preview_rows, "errors": errors}
         )
     except Exception as exc:
-        # Si esto no se atrapa acá, la excepción muere silenciosa en el hilo y el job queda
+        # Si esto no se atrapa acá, la excepción muere silenciosa en la task y el job queda
         # "Procesando" para siempre — el frontend seguiría consultando el estado sin parar.
+        # logger.exception (no solo el mensaje en la BD) para que quede en `docker logs` del
+        # worker cualquier error que _job_error_message no supo resumir bien (traceback
+        # completo, no solo la última línea).
+        logger.exception("Falló la validación de import de cuentas (job_id=%s)", job_id)
         error_status = get_status_by_name(JOB_ERROR_STATUS_NAME)
         CuentaImportJob.objects.filter(pk=job_id).update(
             key_status=error_status, error_message=_job_error_message(exc)
@@ -509,6 +659,7 @@ def start_cuentas_import_validate(request):
     uploaded = request.FILES.get("file")
     if uploaded is None:
         raise ValidationError(message.FALTA_ARCHIVO)
+    excel_utils.validate_import_upload(uploaded)
     file_bytes = uploaded.read()
 
     # Housekeeping barato: en vez de un cron/management command aparte para purgar jobs
@@ -559,6 +710,8 @@ def import_cuentas(request):
     coincide con un registro Inactivo lo reactiva (to_reactivate) en vez de crear uno
     nuevo — ver _parse_cuentas_file."""
     uploaded = request.FILES.get("file")
+    if uploaded is not None:
+        excel_utils.validate_import_upload(uploaded)
     _, errors, to_create, to_reactivate = _parse_cuentas_file(uploaded, request.user)
 
     if errors:

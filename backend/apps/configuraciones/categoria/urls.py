@@ -25,4 +25,5 @@ urlpatterns = [
         name="categoria-historial-detalle",
     ),
     path("tipos-categoria/", views.list_tipos_categoria, name="tipos-categoria-list"),
+    path("tipos-categoria/bulk-save/", views.bulk_save_tipos_categoria, name="tipos-categoria-bulk-save"),
 ]

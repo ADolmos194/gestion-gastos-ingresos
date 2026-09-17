@@ -25,4 +25,5 @@ urlpatterns = [
         name="cuenta-historial-detalle",
     ),
     path("tipos-cuenta/", views.list_tipos_cuenta, name="tipos-cuenta-list"),
+    path("tipos-cuenta/bulk-save/", views.bulk_save_tipos_cuenta, name="tipos-cuenta-bulk-save"),
 ]
