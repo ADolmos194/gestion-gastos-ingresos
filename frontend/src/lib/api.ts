@@ -36,24 +36,47 @@ export interface SessionUser {
   permisos_back: string[]
 }
 
+// DRF puede devolver el cuerpo de un error de tres formas distintas según de dónde salga:
+// - {"detail": "..."}: errores generales (credenciales, link inválido, permisos, etc.)
+// - {"campo": ["msg", ...], ...}: errores de validación por campo (serializers — registro,
+//   reset-password, y ahora también validate_key_moneda en CuentaSerializer).
+// - ["msg"]: `raise ValidationError("mensaje")` a nivel de vista, sin pasar por un
+//   serializer (patrón usado en categoria/moneda/cuenta views.py para duplicados, "no
+//   existe o no te pertenece", etc.) — DRF envuelve un string suelto en una lista.
+// extractErrorMessage entiende los tres para que ApiError.message (lo que muestran los
+// toasts de CrudGrid) nunca caiga al genérico "Error inesperado..." cuando el backend en
+// realidad ya mandó un texto explicando qué pasó.
+function extractErrorMessage(data: unknown, status: number): string {
+  if (typeof data === "object" && data !== null) {
+    if (!Array.isArray(data) && "detail" in data) {
+      return String((data as { detail?: unknown }).detail)
+    }
+    const messages: string[] = Array.isArray(data)
+      ? data.map(String)
+      : Object.values(data as Record<string, unknown>).flatMap((value) =>
+          Array.isArray(value) ? value.map(String) : [String(value)]
+        )
+    if (messages.length) {
+      return messages.join(" ")
+    }
+  }
+  return `Error inesperado del servidor (${status}).`
+}
+
 export class ApiError extends Error {
   status: number
   data: unknown
 
   constructor(status: number, data: unknown) {
-    const detail =
-      typeof data === "object" && data !== null && "detail" in data
-        ? String((data as { detail?: unknown }).detail)
-        : undefined
-    super(detail ?? `Error inesperado del servidor (${status}).`)
+    super(extractErrorMessage(data, status))
     this.status = status
     this.data = data
   }
 }
 
-// DRF devuelve {"detail": "..."} para errores generales (credenciales, link inválido, etc.) y
-// {"campo": ["msg", ...]} para errores de validación por campo (registro, reset-password). Los
-// forms que tocan esos endpoints usan esto para saber qué mostrar arriba del form vs. bajo cada input.
+// Mismo criterio que extractErrorMessage, pero separando "general" (arriba del form) de
+// "fields" (bajo cada input) — lo usan los forms de autenticación (registro, reset-password,
+// verificación) que sí necesitan resaltar el input puntual, no solo un toast.
 export interface ParsedApiError {
   general?: string
   fields: Record<string, string[]>
@@ -63,15 +86,18 @@ export function parseApiError(err: unknown): ParsedApiError {
   if (!(err instanceof ApiError)) {
     return { general: "No se pudo conectar con el servidor.", fields: {} }
   }
-  if (typeof err.data === "object" && err.data !== null && "detail" in err.data) {
+  if (typeof err.data !== "object" || err.data === null || Array.isArray(err.data)) {
+    // {"detail": "..."} ya lo cubre err.message (ApiError ya lo extrajo); un array plano
+    // (["msg"]) no tiene campos que resaltar, así que también cae acá como "general".
+    return { general: err.message, fields: {} }
+  }
+  if ("detail" in err.data) {
     return { general: err.message, fields: {} }
   }
   const fields: Record<string, string[]> = {}
-  if (typeof err.data === "object" && err.data !== null) {
-    for (const [key, value] of Object.entries(err.data as Record<string, unknown>)) {
-      if (Array.isArray(value)) {
-        fields[key] = value.map(String)
-      }
+  for (const [key, value] of Object.entries(err.data as Record<string, unknown>)) {
+    if (Array.isArray(value)) {
+      fields[key] = value.map(String)
     }
   }
   return { fields }

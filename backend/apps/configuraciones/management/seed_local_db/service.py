@@ -5,7 +5,7 @@ from django.core.management.base import CommandError
 from django.db import transaction
 
 from apps.configuraciones.management.seed_local_db.parser import SeedPayload, uuid_from_value
-from apps.configuraciones.models import Status, StatusTypes, System, TipoCategoria
+from apps.configuraciones.models import Status, StatusTypes, System, TipoCategoria, TipoCuenta
 from apps.seguridad.models import Action, Event, Menu, Permission, PermissionRole, Role, RoleMenu, UserRole
 
 
@@ -25,6 +25,7 @@ class SeedLocalDbService:
             status_by_id = self._seed_statuses(seed_payload, status_type_by_id)
             system_by_id = self._seed_systems(seed_payload, status_by_id)
             self._seed_tipo_categorias(seed_payload, status_by_id)
+            self._seed_tipo_cuentas(seed_payload, status_by_id)
             self._seed_events(seed_payload, status_by_id)
             action_by_id = self._seed_actions(seed_payload, status_by_id)
             permission_by_id = self._seed_permissions(seed_payload, status_by_id, action_by_id)
@@ -127,6 +128,20 @@ class SeedLocalDbService:
             pk = uuid_from_value(row["id"], f"{label}.id")
             status = self._resolve(status_by_id, row.get("key_status_id"), f"{label}.key_status_id")
             TipoCategoria.objects.update_or_create(
+                id=pk,
+                defaults={
+                    "name": row.get("name"),
+                    "description": row.get("description"),
+                    "key_status": status,
+                },
+            )
+
+    def _seed_tipo_cuentas(self, seed_payload: SeedPayload, status_by_id: dict[str, Status]) -> None:
+        for row in seed_payload.tipo_cuenta_seed_data:
+            label = f"tipo_cuentas[{row.get('name')}]"
+            pk = uuid_from_value(row["id"], f"{label}.id")
+            status = self._resolve(status_by_id, row.get("key_status_id"), f"{label}.key_status_id")
+            TipoCuenta.objects.update_or_create(
                 id=pk,
                 defaults={
                     "name": row.get("name"),

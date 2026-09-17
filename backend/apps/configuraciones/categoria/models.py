@@ -37,9 +37,10 @@ class Categoria(BaseModel):
 
 
 class CategoriaImportJob(BaseModel):
-    """Estado de una validación de importación de categorías corriendo en un hilo aparte
-    (ver views._run_import_validation_job) — permite que el frontend consulte el avance
-    real (fila a fila) en vez de esperar a ciegas la respuesta de un solo request largo.
+    """Estado de una validación de importación de categorías corriendo en un worker de
+    Celery aparte (ver apps.configuraciones.tasks.run_categorias_import_validation_job) —
+    permite que el frontend consulte el avance real (fila a fila) en vez de esperar a
+    ciegas la respuesta de un solo request largo.
 
     El estado (Procesando/Completado/Error) usa el mismo catálogo compartido key_status de
     BaseModel (cfg_status/cfg_status_types) que el resto del sistema — ver

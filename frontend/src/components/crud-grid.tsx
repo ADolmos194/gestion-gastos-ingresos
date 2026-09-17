@@ -81,19 +81,29 @@ const ACTIVE_STATUS_ID = import.meta.env.VITE_STATUS_ACTIVATE
 const INACTIVE_STATUS_ID = import.meta.env.VITE_STATUS_INACTIVATE
 const VOIDED_STATUS_ID = import.meta.env.VITE_STATUS_VOID
 
-// Texto que muestra la columna ESTADO para una fila con anulación pendiente de guardar —
-// coincide con el "name" real de cfg_status para esa acción, pero se hardcodea porque en
-// ese momento todavía no se confirmó nada con el server.
-const PENDING_VOID_LABEL = "Anulado"
-// Ídem, para una inactivación pendiente de guardar.
-const PENDING_INACTIVE_LABEL = "Inactivo"
-// Ídem, para una restauración (anulado/inactivo -> activo) pendiente de guardar.
-const PENDING_RESTORE_LABEL = "Activo"
+// Texto de la columna ESTADO para cada status EFECTIVO posible (ver effectiveStatusId más
+// abajo) — coincide con el "name" real de cfg_status, pero se hardcodea porque para una fila
+// con una acción pendiente de guardar (anular/inactivar/restaurar) esto tiene que reflejar
+// el estado al que va a quedar, no el que el server todavía tiene, y en ese momento no hay
+// ningún registro real del que leerlo.
+const STATUS_LABEL_BY_ID: Record<string, string> = {
+  [ACTIVE_STATUS_ID]: "Activo",
+  [INACTIVE_STATUS_ID]: "Inactivo",
+  [VOIDED_STATUS_ID]: "Anulado",
+}
 
 // Piso de tiempo que se deja ver el overlay de carga (inicial y en "Refrescar"), para que
 // no sea un parpadeo imperceptible cuando el request es rápido (ej. localhost). Mismo
 // criterio que AUTH_TRANSITION_DELAY_MS en auth-context.tsx.
 const LOADING_MIN_MS = 500
+
+// Delay en cascada para el toolbar del CrudGrid (ver `secondaryActions` más abajo): al abrir
+// la búsqueda, cada botón secundario se contrae en orden (HIDE_DELAYS); al cerrarla, vuelven
+// a aparecer en orden inverso (SHOW_DELAYS), como si se desplegaran desde el lado del "⋯".
+// Escritos como strings literales completos (no template strings con el índice interpolado)
+// porque Tailwind solo genera CSS para clases que puede encontrar como texto en el código.
+const HIDE_DELAYS = ["delay-0", "delay-[50ms]", "delay-[100ms]", "delay-[150ms]", "delay-[200ms]"]
+const SHOW_DELAYS = ["delay-[200ms]", "delay-[150ms]", "delay-[100ms]", "delay-[50ms]", "delay-0"]
 
 // Todo maestro que use este grid necesita estos tres campos en lo que devuelve la API,
 // además de los propios del módulo (ver CrudGridProps.columns).
@@ -275,6 +285,32 @@ function isRowInactive(row: GridRow): boolean {
   return row.pendingInactive || row.statusId === INACTIVE_STATUS_ID
 }
 
+// Efectiva ahora mismo desde el punto de vista del usuario, ANTES de guardar — usado tanto
+// por EstadoCellRenderer (el texto) como por estadoCellClassRules (el color de fondo), para
+// que nunca puedan mostrar cosas distintas entre sí. Una fila nueva (sin pendings) cae en el
+// fallback Activo porque blankRow ya la crea con statusId = ACTIVO.
+function effectiveStatusId(row: GridRow): string {
+  if (isRowVoided(row)) return VOIDED_STATUS_ID
+  if (isRowInactive(row)) return INACTIVE_STATUS_ID
+  return ACTIVE_STATUS_ID
+}
+
+// Mismas 5 bolsas que arma bulk_save_categorias/bulk_save_monedas en el backend (created/
+// updated/voided/restored/inactivated) — un solo lugar para no repetir estos filtros entre
+// handleSave (arma el payload) y el contador de cambios pendientes del botón "Guardar
+// cambios" (ver pendingChangesCount más abajo), que tienen que coincidir siempre.
+function collectPendingChanges(rows: GridRow[]) {
+  return {
+    created: rows.filter((row) => row.id === null),
+    updated: rows.filter(
+      (row) => row.id !== null && row.dirty && !row.pendingVoid && !row.pendingInactive && !row.pendingRestore
+    ),
+    voided: rows.filter((row) => row.pendingVoid && row.id !== null),
+    inactivated: rows.filter((row) => row.pendingInactive && row.id !== null),
+    restored: rows.filter((row) => row.pendingRestore && row.id !== null),
+  }
+}
+
 // Celda de tipo "color": un swatch redondo pintado del color + el código hex. Reemplaza el
 // truco de Handsontable (armar el DOM a mano con renderToStaticMarkup) por un componente
 // React posta — AG Grid lo acepta directo como cellRenderer.
@@ -303,16 +339,14 @@ function IconCellRenderer({ value }: CustomCellRendererProps<GridRow, string>) {
   )
 }
 
-// Columna ESTADO: mientras una anulación está pendiente de guardar, `row.status` todavía
-// tiene el texto viejo (el registro real en el server no cambió), así que acá se pisa la
-// vista para que diga "Anulado" ya desde antes de guardar, en línea con el fondo rojo que
-// se pinta en rowClassRules/cellClassRules más abajo.
+// Columna ESTADO: siempre el status EFECTIVO (ver effectiveStatusId), no `data.status` a
+// secas — mientras una acción está pendiente de guardar, `data.status` todavía tiene el
+// texto viejo (el registro real en el server no cambió todavía), así que acá se adelanta la
+// vista al estado al que va a quedar, en línea con el color que pinta estadoCellClassRules
+// más abajo (misma fuente, effectiveStatusId, para que texto y color nunca diverjan).
 function EstadoCellRenderer({ data }: CustomCellRendererProps<GridRow, string>) {
   if (!data) return null
-  if (data.pendingVoid) return <>{PENDING_VOID_LABEL}</>
-  if (data.pendingInactive) return <>{PENDING_INACTIVE_LABEL}</>
-  if (data.pendingRestore) return <>{PENDING_RESTORE_LABEL}</>
-  return <>{data.status}</>
+  return <>{STATUS_LABEL_BY_ID[effectiveStatusId(data)] ?? data.status}</>
 }
 
 // Toda la lógica y el estado de un maestro tipo-planilla: cargar, agregar fila, editar,
@@ -590,13 +624,13 @@ export function useCrudGrid<T extends CrudRecord>({
   }
 
   async function handleSave() {
-    const created = rows.filter((row) => row.id === null).map((row) => toPayload(row.fields))
-    const updated = rows
-      .filter((row) => row.id !== null && row.dirty && !row.pendingVoid && !row.pendingInactive && !row.pendingRestore)
-      .map((row) => ({ id: row.id as string, ...toPayload(row.fields) }))
-    const voided = rows.filter((row) => row.pendingVoid && row.id !== null).map((row) => row.id as string)
-    const inactivated = rows.filter((row) => row.pendingInactive && row.id !== null).map((row) => row.id as string)
-    const restored = rows.filter((row) => row.pendingRestore && row.id !== null).map((row) => row.id as string)
+    const { created: createdRows, updated: updatedRows, voided: voidedRows, inactivated: inactivatedRows, restored: restoredRows } =
+      collectPendingChanges(rows)
+    const created = createdRows.map((row) => toPayload(row.fields))
+    const updated = updatedRows.map((row) => ({ id: row.id as string, ...toPayload(row.fields) }))
+    const voided = voidedRows.map((row) => row.id as string)
+    const inactivated = inactivatedRows.map((row) => row.id as string)
+    const restored = restoredRows.map((row) => row.id as string)
 
     if (
       created.length === 0 &&
@@ -719,14 +753,16 @@ export function useCrudGrid<T extends CrudRecord>({
   const getRowId = useCallback((params: GetRowIdParams<GridRow>) => params.data.clientId, [])
 
   // Fila ya Anulada en el server, o recién marcada para anular (pendingVoid, sin guardar
-  // todavía): toda la fila en rojo. Nueva, o marcada para restaurar (pendingRestore, sin
-  // guardar): celeste. Editada, pendiente de guardar: amarilla. "!" (Tailwind important)
-  // porque el tema de AG Grid trae su propio background de celda, con más especificidad
-  // que una clase utilitaria suelta.
+  // todavía): toda la fila en rojo. Marcada para inactivar: naranja — deliberadamente
+  // distinto del celeste de abajo (nueva/restaurar) para no pisarle el significado, y del
+  // rojo de Anular (Inactivo no es una baja, es un estado intermedio). Nueva, o marcada para
+  // restaurar (pendingRestore, sin guardar): celeste. Editada, pendiente de guardar:
+  // amarilla. "!" (Tailwind important) porque el tema de AG Grid trae su propio background
+  // de celda, con más especificidad que una clase utilitaria suelta.
   const rowClassRules: RowClassRules<GridRow> = useMemo(
     () => ({
       "!bg-red-100 opacity-80": (params) => params.data?.pendingVoid === true,
-      "!bg-slate-100 opacity-80": (params) =>
+      "!bg-orange-100 opacity-80": (params) =>
         params.data?.pendingVoid !== true && params.data?.pendingInactive === true,
       "!bg-blue-50": (params) =>
         params.data?.pendingVoid !== true &&
@@ -742,27 +778,25 @@ export function useCrudGrid<T extends CrudRecord>({
     []
   )
 
-  // Solo en la columna ESTADO: texto rojo si está pendiente de anular, o si la fila está
-  // "limpia" (no dirty, no pendingVoid) reflejar el status real — verde Activo, rojo
-  // Anulado. Las filas nueva/dirty ya van resaltadas enteras por rowClassRules de arriba.
+  // Solo en la columna ESTADO: siempre refleja el status EFECTIVO (effectiveStatusId, mismo
+  // criterio que ya usaba el texto de EstadoCellRenderer) — no el status crudo del server
+  // condicionado a "no dirty, ya guardada". Antes, una fila nueva o con una acción pendiente
+  // (anular/inactivar/restaurar) sin guardar todavía se quedaba sin color de fondo en esta
+  // celda (solo la fila entera se resaltaba vía rowClassRules), aunque el texto ya adelantara
+  // el estado final — de ahí que "Activo" en una fila recién creada, o recién reactivada,
+  // no se viera verde hasta después de guardar. Ahora el color sigue al mismo estado
+  // "adelantado" que ya mostraba el texto, así nunca pueden divergir entre sí.
   const estadoCellClassRules: CellClassRules<GridRow> = useMemo(
     () => ({
-      "text-center !text-red-800 font-medium": (params) => params.data?.pendingVoid === true,
-      "text-center !bg-green-100 font-medium !text-green-800": (params) =>
-        params.data?.pendingVoid !== true &&
-        params.data?.dirty !== true &&
-        params.data?.id !== null &&
-        params.data?.statusId === ACTIVE_STATUS_ID,
-      "text-center !bg-red-100 font-medium !text-red-800": (params) =>
-        params.data?.pendingVoid !== true &&
-        params.data?.dirty !== true &&
-        params.data?.id !== null &&
-        params.data?.statusId === VOIDED_STATUS_ID,
-      "text-center !bg-slate-100 font-medium !text-slate-700": (params) =>
-        params.data?.pendingVoid !== true &&
-        params.data?.dirty !== true &&
-        params.data?.id !== null &&
-        params.data?.statusId === INACTIVE_STATUS_ID,
+      "text-center uppercase font-medium !bg-green-100 !text-green-800": (params) =>
+        !!params.data && effectiveStatusId(params.data) === ACTIVE_STATUS_ID,
+      "text-center uppercase font-medium !bg-red-100 !text-red-800": (params) =>
+        !!params.data && effectiveStatusId(params.data) === VOIDED_STATUS_ID,
+      // Naranja, no gris: un gris (slate) quedaba casi invisible contra el fondo de la
+      // grilla, y además el celeste ya significa "nueva/restaurar" (ver rowClassRules) — el
+      // naranja lo deja claramente distinguible de los otros tres estados (verde/rojo/celeste).
+      "text-center uppercase font-medium !bg-orange-100 !text-orange-800": (params) =>
+        !!params.data && effectiveStatusId(params.data) === INACTIVE_STATUS_ID,
     }),
     []
   )
@@ -840,11 +874,30 @@ export function useCrudGrid<T extends CrudRecord>({
     []
   )
 
+  // Total de filas que "Guardar cambios" mandaría ahora mismo (nuevas + editadas + a anular
+  // + a inactivar + a restaurar) — mismas 5 bolsas que arma handleSave, ver
+  // collectPendingChanges. Alimenta el badge del botón de Guardar (más abajo).
+  const pendingChanges = collectPendingChanges(rows)
+  const pendingChangesCount =
+    pendingChanges.created.length +
+    pendingChanges.updated.length +
+    pendingChanges.voided.length +
+    pendingChanges.inactivated.length +
+    pendingChanges.restored.length
+
   // Agregar fila, filtro de estado, Guardar y Refrescar se usan seguido y quedan siempre
   // visibles. Descartar cambios/Limpiar filtro/Importar/Descargar plantilla/Exportar se usan
   // poco: normalmente sueltas, pero al abrir la búsqueda (que necesita su lugar al lado de la
-  // lupa) se juntan en el menú "⋯" para no competir por espacio — ver el if/else de
-  // searchOpen más abajo, cerca del final.
+  // lupa) se contraen en cascada y se juntan en el menú "⋯" para no competir por espacio —
+  // ver secondaryActions y su render más abajo, cerca del final.
+  const secondaryActions = [
+    { key: "discard", show: true, icon: <Undo2Icon className="text-amber-600" />, label: "Descartar cambios", onClick: handleDiscardChanges },
+    { key: "clear", show: true, icon: <EraserIcon className="text-slate-500" />, label: "Limpiar filtro", onClick: handleClearFilters },
+    { key: "import", show: Boolean(api.validateImport), icon: <UploadIcon className="text-violet-600" />, label: "Importar", onClick: openImportDialog },
+    { key: "template", show: Boolean(api.downloadTemplate), icon: <FileDownIcon className="text-indigo-600" />, label: "Descargar plantilla", onClick: handleDownloadTemplate },
+    { key: "export", show: Boolean(api.export), icon: <FileSpreadsheetIcon className="text-emerald-600" />, label: "Exportar datos", onClick: handleExport },
+  ].filter((action) => action.show)
+
   const toolbar = (
     <div className="flex shrink-0 items-center gap-1.5 [&>*]:shrink-0">
       {/* Búsqueda libre, aparte del filtro Activos/Inactivos/Anulados/Todos de más abajo:
@@ -870,9 +923,11 @@ export function useCrudGrid<T extends CrudRecord>({
         <TooltipContent>Buscar</TooltipContent>
       </Tooltip>
       <div
-        className={`overflow-hidden transition-[width] duration-300 ease-in-out ${searchOpen ? "w-32 sm:w-40" : "w-0"}`}
+        className={`overflow-hidden transition-[width] duration-500 ease-in-out ${searchOpen ? "w-32 sm:w-40" : "w-0"}`}
       >
-        <div className="relative w-32 sm:w-40">
+        <div
+          className={`relative w-32 sm:w-40 transition-opacity duration-300 ${searchOpen ? "opacity-100 delay-150" : "opacity-0"}`}
+        >
           <Input
             ref={searchInputRef}
             value={searchText}
@@ -883,7 +938,7 @@ export function useCrudGrid<T extends CrudRecord>({
             placeholder="Buscar…"
             aria-label="Buscar registro"
             tabIndex={searchOpen ? 0 : -1}
-            className="h-7 w-full pr-7 text-sm"
+            className="h-7 w-full rounded-[min(var(--radius-md),12px)] border-border bg-background pr-7 text-sm shadow-none"
           />
           {searchText && (
             <button
@@ -948,7 +1003,7 @@ export function useCrudGrid<T extends CrudRecord>({
             />
           }
         >
-          <CircleDashedIcon className={statusFilter === "inactive" ? undefined : "text-slate-500"} />
+          <CircleDashedIcon className={statusFilter === "inactive" ? undefined : "text-orange-600"} />
         </TooltipTrigger>
         <TooltipContent>Ver inactivos</TooltipContent>
       </Tooltip>
@@ -967,12 +1022,23 @@ export function useCrudGrid<T extends CrudRecord>({
         <TooltipContent>Ver anulados</TooltipContent>
       </Tooltip>
       <Separator orientation="vertical" className="h-6" />
-      <Tooltip>
-        <TooltipTrigger render={<Button size="icon-sm" onClick={handleSave} disabled={saving} />}>
-          <SaveIcon />
-        </TooltipTrigger>
-        <TooltipContent>Guardar cambios</TooltipContent>
-      </Tooltip>
+      {/* relative + badge absoluto: mismo patrón que un contador de notificaciones, para que
+          el usuario vea de un vistazo cuántos cambios se mandarían sin tener que mirar la
+          fila de contadores aparte (ver pendingChangesCount más arriba). Oculto en 0 — no
+          tiene sentido un badge avisando "nada para guardar". */}
+      <div className="relative inline-flex">
+        <Tooltip>
+          <TooltipTrigger render={<Button size="icon-sm" onClick={handleSave} disabled={saving} />}>
+            <SaveIcon />
+          </TooltipTrigger>
+          <TooltipContent>Guardar cambios</TooltipContent>
+        </Tooltip>
+        {pendingChangesCount > 0 && (
+          <span className="pointer-events-none absolute -top-1.5 -right-1.5 flex size-4 items-center justify-center rounded-full bg-amber-600 text-[10px] font-semibold text-white">
+            {pendingChangesCount > 99 ? "99+" : pendingChangesCount}
+          </span>
+        )}
+      </div>
       <Tooltip>
         <TooltipTrigger render={<Button variant="outline" size="icon-sm" onClick={handleRefresh} disabled={refreshing} />}>
           <RefreshCwIcon className={refreshing ? "animate-spin text-sky-600" : "text-sky-600"} />
@@ -981,85 +1047,68 @@ export function useCrudGrid<T extends CrudRecord>({
       </Tooltip>
       <Separator orientation="vertical" className="h-6" />
       {/* Descartar cambios, Limpiar filtro, Importar/Descargar plantilla/Exportar: estas sí
-          se usan poco, así que solo se juntan en el menú "⋯" mientras hay que hacerle lugar
-          al campo de búsqueda — cerrada la búsqueda, vuelven a mostrarse todas sueltas (sin
-          "⋯", no hace falta agruparlas si sobra espacio). */}
-      {searchOpen ? (
-        <div className="animate-in fade-in-0 zoom-in-95 duration-200">
+          se usan poco, así que se agrupan en el menú "⋯" mientras hay que hacerle lugar al
+          campo de búsqueda. Ambos grupos quedan siempre montados (igual que el campo de
+          búsqueda más arriba) y solo animan ancho + opacidad — así el swap no es instantáneo:
+          cada botón se contrae en cascada (stagger por índice vía *_DELAYS) y recién cuando
+          termina el último aparece el "⋯"; al cerrar la búsqueda es al revés, el "⋯" se
+          esconde de una y los botones se despliegan en cascada. */}
+      {secondaryActions.map((action, index) => (
+        <div
+          key={action.key}
+          // -mr-1.5 cancela el gap-1.5 del toolbar cuando el botón está colapsado (w-0): sin
+          // esto, el `gap` del flex sigue metiendo su espacio entre cada botón invisible y el
+          // siguiente, dejando un hueco vacío entre el separador y el "⋯" aunque no haya
+          // nada ahí en el medio.
+          className={`overflow-hidden transition-[width,margin-right] duration-300 ease-in-out ${
+            searchOpen ? `w-0 -mr-1.5 ${HIDE_DELAYS[index]}` : `w-7 mr-0 ${SHOW_DELAYS[index]}`
+          }`}
+        >
+          <div
+            className={`transition-opacity duration-200 ${
+              searchOpen ? `opacity-0 ${HIDE_DELAYS[index]}` : `opacity-100 ${SHOW_DELAYS[index]}`
+            }`}
+          >
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    variant="outline"
+                    size="icon-sm"
+                    tabIndex={searchOpen ? -1 : 0}
+                    onClick={action.onClick}
+                  />
+                }
+              >
+                {action.icon}
+              </TooltipTrigger>
+              <TooltipContent>{action.label}</TooltipContent>
+            </Tooltip>
+          </div>
+        </div>
+      ))}
+      <div
+        // Mismo motivo que -mr-1.5 en secondaryActions más arriba: cancela el gap-1.5 del
+        // toolbar mientras el "⋯" está colapsado (w-0), para que no deje un hueco fantasma
+        // entre el separador y el campo de búsqueda cuando los botones sueltos están visibles.
+        className={`overflow-hidden transition-[width,margin-right] duration-300 ease-in-out ${searchOpen ? "w-7 mr-0 delay-[500ms]" : "w-0 -mr-1.5 delay-0"}`}
+      >
+        <div className={`transition-opacity duration-200 ${searchOpen ? "opacity-100 delay-[550ms]" : "opacity-0 delay-0"}`}>
           <DropdownMenu>
-            <DropdownMenuTrigger render={<Button variant="outline" size="icon-sm" />}>
+            <DropdownMenuTrigger render={<Button variant="outline" size="icon-sm" tabIndex={searchOpen ? 0 : -1} />}>
               <EllipsisIcon className="text-slate-600" />
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" className="min-w-48">
-              <DropdownMenuItem onClick={handleDiscardChanges}>
-                <Undo2Icon className="text-amber-600" />
-                Descartar cambios
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={handleClearFilters}>
-                <EraserIcon className="text-slate-500" />
-                Limpiar filtro
-              </DropdownMenuItem>
-              {api.validateImport && (
-                <DropdownMenuItem onClick={openImportDialog}>
-                  <UploadIcon className="text-violet-600" />
-                  Importar
+              {secondaryActions.map((action) => (
+                <DropdownMenuItem key={action.key} onClick={action.onClick}>
+                  {action.icon}
+                  {action.label}
                 </DropdownMenuItem>
-              )}
-              {api.downloadTemplate && (
-                <DropdownMenuItem onClick={handleDownloadTemplate}>
-                  <FileDownIcon className="text-indigo-600" />
-                  Descargar plantilla
-                </DropdownMenuItem>
-              )}
-              {api.export && (
-                <DropdownMenuItem onClick={handleExport}>
-                  <FileSpreadsheetIcon className="text-emerald-600" />
-                  Exportar datos
-                </DropdownMenuItem>
-              )}
+              ))}
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
-      ) : (
-        <>
-          <Tooltip>
-            <TooltipTrigger render={<Button variant="outline" size="icon-sm" onClick={handleDiscardChanges} />}>
-              <Undo2Icon className="text-amber-600" />
-            </TooltipTrigger>
-            <TooltipContent>Descartar cambios</TooltipContent>
-          </Tooltip>
-          <Tooltip>
-            <TooltipTrigger render={<Button variant="outline" size="icon-sm" onClick={handleClearFilters} />}>
-              <EraserIcon className="text-slate-500" />
-            </TooltipTrigger>
-            <TooltipContent>Limpiar filtro</TooltipContent>
-          </Tooltip>
-          {api.validateImport && (
-            <Tooltip>
-              <TooltipTrigger render={<Button variant="outline" size="icon-sm" onClick={openImportDialog} />}>
-                <UploadIcon className="text-violet-600" />
-              </TooltipTrigger>
-              <TooltipContent>Importar</TooltipContent>
-            </Tooltip>
-          )}
-          {api.downloadTemplate && (
-            <Tooltip>
-              <TooltipTrigger render={<Button variant="outline" size="icon-sm" onClick={handleDownloadTemplate} />}>
-                <FileDownIcon className="text-indigo-600" />
-              </TooltipTrigger>
-              <TooltipContent>Descargar plantilla</TooltipContent>
-            </Tooltip>
-          )}
-          {api.export && (
-            <Tooltip>
-              <TooltipTrigger render={<Button variant="outline" size="icon-sm" onClick={handleExport} />}>
-                <FileSpreadsheetIcon className="text-emerald-600" />
-              </TooltipTrigger>
-              <TooltipContent>Exportar datos</TooltipContent>
-            </Tooltip>
-          )}
-        </>
-      )}
+      </div>
       {/* Fuera del if/else de arriba: el file input tiene que seguir montado aunque la
           búsqueda esté abierta (el diálogo de importación puede seguir abierto de una
           apertura anterior y su "Elegir archivo" dispara este ref). */}
@@ -1115,7 +1164,7 @@ export function useCrudGrid<T extends CrudRecord>({
         modificadas
       </span>
       <span className="inline-flex items-center gap-1">
-        <CircleDashedIcon className="size-3.5 text-slate-500" />
+        <CircleDashedIcon className="size-3.5 text-orange-600" />
         <span className="font-medium text-foreground">{inactiveCount}</span>
         inactivas
       </span>
@@ -1211,7 +1260,7 @@ export function useCrudGrid<T extends CrudRecord>({
                       inactivateRows(contextMenu.targetRows)
                       setContextMenu(null)
                     }}
-                    className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm text-slate-600 hover:bg-accent disabled:pointer-events-none disabled:opacity-50"
+                    className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm text-orange-600 hover:bg-accent disabled:pointer-events-none disabled:opacity-50"
                   >
                     <CircleDashedIcon className="size-4" />
                     {contextMenu.targetRows.length > 1 ? "Inactivar registros" : "Inactivar registro"}

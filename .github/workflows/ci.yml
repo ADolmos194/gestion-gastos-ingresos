@@ -1,0 +1,97 @@
+name: CI
+
+# En cada push/PR: valida backend y frontend por separado (rápido, falla temprano), y solo
+# si ambos pasan, construye las 3 imágenes de Docker (backend/worker comparten imagen,
+# nginx incluye el build de frontend) para agarrar roturas de Dockerfile/nginx.conf antes de
+# que lleguen a un deploy real.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    # Mismo motor que producción/dev (Postgres real vía DATABASE_URL, ver config/settings.py)
+    # — nada de sqlite acá, para no probar contra un motor distinto del que corre de verdad.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: gastos_ingresos_ci
+          POSTGRES_USER: gastos_ingresos
+          POSTGRES_PASSWORD: gastos_ingresos_pass
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd="pg_isready -U gastos_ingresos -d gastos_ingresos_ci"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=10
+    env:
+      DJANGO_SECRET_KEY: ci-only-secret-key-never-use-in-production
+      DJANGO_DEBUG: "True"
+      DATABASE_URL: postgresql://gastos_ingresos:gastos_ingresos_pass@localhost:5432/gastos_ingresos_ci
+      # Ningún test llama a .delay() de verdad (ver apps.configuraciones.tasks) — Celery no
+      # conecta al importar settings, así que no hace falta un Redis real en este job.
+      CELERY_BROKER_URL: redis://localhost:6379/0
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: backend/requirements.txt
+
+      - run: pip install -r requirements.txt
+
+      - name: Django system check
+        run: python manage.py check
+
+      - name: Tests
+        run: python manage.py test
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "pnpm"
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Type-check + build
+        run: pnpm run build
+
+      - name: Lint
+        run: pnpm run lint
+
+  docker-build:
+    runs-on: ubuntu-latest
+    needs: [backend, frontend]
+    steps:
+      - uses: actions/checkout@v4
+
+      # backend/Dockerfile corre collectstatic en el build (ver Dockerfile) — si algo ahí
+      # rompe (un import, un STORAGES mal armado), esto lo agarra antes que un deploy.
+      - name: Build backend/worker image
+        run: docker build -f backend/Dockerfile -t ci-backend backend
+
+      # Contexto "." (raíz), no "frontend/": nginx/Dockerfile necesita frontend/ para el
+      # build multi-stage (ver nginx/Dockerfile) — mismo comando que usaría un deploy real.
+      - name: Build nginx (+ frontend) image
+        run: docker build -f nginx/Dockerfile -t ci-nginx .

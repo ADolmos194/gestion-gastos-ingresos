@@ -20,6 +20,19 @@ services:
       timeout: 5s
       retries: 10
 
+  redis:
+    image: redis:7-alpine
+    container_name: gastos_ingresos_redis
+    restart: always
+    ports:
+      - "6380:6379"
+    networks: [ gastos_ingresos_network ]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
   backend:
     build:
       context: .
@@ -34,6 +47,8 @@ services:
     environment:
       DJANGO_DEBUG: ${DJANGO_DEBUG:-True}
       DATABASE_URL: postgres://${DB_USER_DEFAULT:-gastos_ingresos}:${DB_PASSWORD_DEFAULT:-gastos_ingresos_pass}@postgres:5432/${DB_NAME_DEFAULT:-gastos_ingresos_local}
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
     command:
       - /bin/sh
       - -lc
@@ -45,6 +60,34 @@ services:
       - gastos_ingresos_network
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # Import de Excel (categorías/monedas/cuentas) ahora corre acá, no en un threading.Thread
+  # dentro del propio "backend" — sin este servicio arriba, start_*_import_validate encola
+  # la task pero nunca se procesa (se queda en "Procesando" para siempre).
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: gastos_ingresos_worker
+    volumes:
+      - .:/app
+    env_file:
+      - .env
+    environment:
+      DJANGO_DEBUG: ${DJANGO_DEBUG:-True}
+      DATABASE_URL: postgres://${DB_USER_DEFAULT:-gastos_ingresos}:${DB_PASSWORD_DEFAULT:-gastos_ingresos_pass}@postgres:5432/${DB_NAME_DEFAULT:-gastos_ingresos_local}
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
+    command: celery -A config worker --loglevel=info --concurrency=1
+    networks:
+      - gastos_ingresos_network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
 
 networks:

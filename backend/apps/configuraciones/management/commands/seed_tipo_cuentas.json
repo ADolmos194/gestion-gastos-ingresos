@@ -1,0 +1,22 @@
+{
+  "cfg_tipo_cuentas": [
+    {
+      "id": "d02e6c98-0f68-40b2-9c6a-98114cfc948d",
+      "name": "Banco",
+      "description": "Cuenta bancaria",
+      "key_status_id": "e6c00f21-8e37-4c26-9f52-a3db842809da"
+    },
+    {
+      "id": "3a74f1f8-4133-4610-9c82-a8458bdf72e4",
+      "name": "Efectivo",
+      "description": "Dinero en efectivo",
+      "key_status_id": "e6c00f21-8e37-4c26-9f52-a3db842809da"
+    },
+    {
+      "id": "5f6a0b3d-1217-42ba-8dbf-69bdbf0ff1b6",
+      "name": "Billetera",
+      "description": "Billetera digital",
+      "key_status_id": "e6c00f21-8e37-4c26-9f52-a3db842809da"
+    }
+  ]
+}

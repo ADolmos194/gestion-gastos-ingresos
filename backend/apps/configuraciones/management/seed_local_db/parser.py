@@ -30,6 +30,7 @@ class SeedPayload:
     status_seed_data: list[dict]
     system_seed_data: list[dict]
     tipo_categoria_seed_data: list[dict]
+    tipo_cuenta_seed_data: list[dict]
     event_seed_data: list[dict]
     action_seed_data: list[dict]
     permission_seed_data: list[dict]

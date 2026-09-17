@@ -7,4 +7,6 @@ app_name = "configuraciones"
 # que ya arma config/urls.py.
 urlpatterns = [
     path("", include("apps.configuraciones.categoria.urls")),
+    path("", include("apps.configuraciones.moneda.urls")),
+    path("", include("apps.configuraciones.cuenta.urls")),
 ]

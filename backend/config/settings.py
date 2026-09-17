@@ -58,6 +58,11 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    # Sirve STATIC_ROOT directo desde gunicorn (comprimido + con cache headers), sin
+    # depender de `runserver`/DEBUG=True ni de un volumen compartido con nginx: nginx solo
+    # tiene que proxyear /static/ al backend (ver nginx/nginx.conf), no servir archivos él
+    # mismo. Necesario para que el admin de Django tenga CSS/JS detrás de nginx.
+    'whitenoise.middleware.WhiteNoiseMiddleware',
     'corsheaders.middleware.CorsMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -180,6 +185,32 @@ CSRF_COOKIE_SECURE = env_bool('CSRF_COOKIE_SECURE', not DEBUG)
 SESSION_COOKIE_AGE = int(os.getenv('SESSION_COOKIE_AGE', 60 * 60 * 8))  # 8 horas
 SESSION_SAVE_EVERY_REQUEST = True
 
+# HTTPS hardening — todo apagado por default (no cambia nada en dev/tests/docker-compose.dev
+# sin TLS): activar recién cuando haya un dominio real con certificado. Corresponden a los
+# warnings W004/W008 de `manage.py check --deploy`; SESSION_COOKIE_SECURE/CSRF_COOKIE_SECURE
+# (W012/W016) ya estaban resueltos arriba (atados a DEBUG desde antes de este cambio).
+#
+# SECURE_SSL_REDIRECT en True sin TLS real corta el tráfico (nginx hoy sirve HTTP plano) o
+# entra en loop de redirección si el proxy no manda X-Forwarded-Proto correctamente.
+SECURE_SSL_REDIRECT = env_bool('DJANGO_SECURE_SSL_REDIRECT', False)
+
+# Sin esto, detrás de un proxy que termina TLS (nginx) Django ve todo tráfico como HTTP
+# plano (request.is_secure() siempre False) — rompería SECURE_SSL_REDIRECT en loop y el
+# navegador nunca mandaría las cookies "Secure". Ojo: esto CONFÍA en el header
+# X-Forwarded-Proto tal cual llega — solo activar cuando ese proxy en verdad lo sobreescribe
+# en cada request (nginx/nginx.conf ya lo hace: `proxy_set_header X-Forwarded-Proto $scheme`).
+# Si Django alguna vez queda expuesto directo, SIN ese proxy adelante, esto dejaría que
+# cualquiera falsifique "conexión segura" mandando ese header a mano.
+if env_bool('DJANGO_TRUST_PROXY_SSL_HEADER', False):
+    SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+
+# HSTS en 0 (apagado) hasta tener TLS real: un valor alto puesto por error obliga a los
+# navegadores a rechazar HTTP plano para este host durante ese tiempo, sin forma de
+# revertirlo rápido del lado del cliente si algo salió mal con el certificado.
+SECURE_HSTS_SECONDS = int(os.getenv('DJANGO_SECURE_HSTS_SECONDS', '0'))
+SECURE_HSTS_INCLUDE_SUBDOMAINS = env_bool('DJANGO_SECURE_HSTS_INCLUDE_SUBDOMAINS', False)
+SECURE_HSTS_PRELOAD = env_bool('DJANGO_SECURE_HSTS_PRELOAD', False)
+
 
 # Supabase (uso opcional del SDK además de la conexión directa a Postgres)
 SUPABASE_URL = os.getenv('SUPABASE_URL', '')
@@ -220,4 +251,33 @@ USE_TZ = True
 STATIC_URL = 'static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
 
+STORAGES = {
+    'default': {
+        'BACKEND': 'django.core.files.storage.FileSystemStorage',
+    },
+    # CompressedManifestStaticFilesStorage: nombra cada archivo con un hash de su contenido
+    # (cache-busting automático en cada deploy) y sirve la versión .gz/.br cuando el
+    # navegador la acepta. Requiere `collectstatic` en el build de la imagen (ver Dockerfile).
+    'staticfiles': {
+        'BACKEND': 'whitenoise.storage.CompressedManifestStaticFilesStorage',
+    },
+}
+
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+
+# Celery (worker de segundo plano para las validaciones de importación de Excel — ver
+# apps.configuraciones.tasks). Antes corrían en un threading.Thread dentro del propio
+# proceso web: no sobrevivía un restart/deploy del contenedor ni escalaba horizontalmente.
+# Redis como broker (y como result backend, aunque hoy no se consulta: el avance/resultado
+# del job se seguye leyendo de CategoriaImportJob/MonedaImportJob/CuentaImportJob en la
+# base de datos, no de Celery).
+CELERY_BROKER_URL = os.getenv('CELERY_BROKER_URL', 'redis://localhost:6379/0')
+CELERY_RESULT_BACKEND = os.getenv('CELERY_RESULT_BACKEND', CELERY_BROKER_URL)
+CELERY_TASK_SERIALIZER = 'json'
+CELERY_ACCEPT_CONTENT = ['json']
+CELERY_TIMEZONE = TIME_ZONE
+# Comportamiento actual de Celery (reintentar conectar al broker si no está listo todavía
+# al arrancar) — sin esto, Celery 6 lo va a apagar por default y el worker no va a
+# reintentar si Redis tarda en levantar (p.ej. al arrancar todo el stack junto).
+CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True

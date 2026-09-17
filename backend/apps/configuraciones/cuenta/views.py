@@ -21,6 +21,7 @@ from apps.seguridad.decorators import log_data_access, require_permission
 from apps.seguridad.services import ALL_PERMISSIONS_BACK, build_user_access
 
 from .. import excel_utils
+from ..moneda.models import Moneda
 from ..services import (
     ACTIVE_STATUS_NAME,
     INACTIVE_STATUS_NAME,
@@ -30,26 +31,26 @@ from ..services import (
     VOIDED_STATUS_NAME,
     get_status_by_name,
 )
-from ..tasks import run_categorias_import_validation_job
+from ..tasks import run_cuentas_import_validation_job
 from . import constants, message
-from .models import Categoria, CategoriaImportJob, TipoCategoria
-from .serializers import CategoriaSerializer, TipoCategoriaSerializer
+from .models import Cuenta, CuentaImportJob, TipoCuenta
+from .serializers import CuentaSerializer, TipoCuentaSerializer
 
-_MODULO = "configuraciones.categoria"
-_TABLA = Categoria._meta.db_table
+_MODULO = "configuraciones.cuenta"
+_TABLA = Cuenta._meta.db_table
 
 # Para no repetir modulo/nom_tabla en cada punto de escritura de este módulo.
 _registrar_creacion = partial(registrar_creacion, modulo=_MODULO, nom_tabla=_TABLA)
 _registrar_actualizacion = partial(registrar_actualizacion, modulo=_MODULO, nom_tabla=_TABLA)
 
 
-def _user_categorias(user):
+def _user_cuentas(user):
     # "Eliminado" no se usa desde la UI (solo "anular" -> Anulado), pero se excluye acá
     # por si algún día se purga algo manualmente; todo lo demás (Activo, Anulado) se ve.
     return (
-        Categoria.objects.filter(key_user=user)
+        Cuenta.objects.filter(key_user=user)
         .exclude(key_status__name="Eliminado")
-        .select_related("key_tipo", "key_status")
+        .select_related("key_tipo", "key_moneda", "key_status")
     )
 
 
@@ -60,39 +61,39 @@ def _has_permission(access, decorator_name: str) -> bool:
 @log_data_access
 @require_permission(constants.PERM_READ)
 @api_view(["GET"])
-def list_tipos_categoria(request):
-    """Catálogo de Gasto/Ingreso: alimenta el dropdown de la columna Tipo en la grilla."""
-    tipos = TipoCategoria.objects.filter(key_status__name=ACTIVE_STATUS_NAME).order_by("name")
-    return Response(TipoCategoriaSerializer(tipos, many=True).data)
+def list_tipos_cuenta(request):
+    """Catálogo de Banco/Efectivo/Billetera: alimenta el dropdown de la columna Tipo en la
+    grilla."""
+    tipos = TipoCuenta.objects.filter(key_status__name=ACTIVE_STATUS_NAME).order_by("name")
+    return Response(TipoCuentaSerializer(tipos, many=True).data)
 
 
 @log_data_access
 @require_permission(constants.PERM_READ)
 @api_view(["GET"])
-def list_categorias(request):
-    categorias = _user_categorias(request.user).order_by("key_status__name", "name")
-    return Response(CategoriaSerializer(categorias, many=True).data)
+def list_cuentas(request):
+    cuentas = _user_cuentas(request.user).order_by("key_status__name", "name")
+    return Response(CuentaSerializer(cuentas, many=True).data)
 
 
-def _owned_categoria_or_404(categoria_id, usuario) -> Categoria:
+def _owned_cuenta_or_404(cuenta_id, usuario) -> Cuenta:
     # No alcanza con que el id exista: tiene que ser DE ESTE usuario — si no, cualquiera
     # podría leer el historial de un registro ajeno adivinando/probando su UUID.
-    categoria = Categoria.objects.filter(id=categoria_id, key_user=usuario).first()
-    if categoria is None:
+    cuenta = Cuenta.objects.filter(id=cuenta_id, key_user=usuario).first()
+    if cuenta is None:
         raise Http404
-    return categoria
+    return cuenta
 
 
 @log_data_access
 @require_permission(constants.PERM_READ)
 @api_view(["GET"])
-def categoria_historial(request, categoria_id):
+def cuenta_historial(request, cuenta_id):
     """Un evento de auditoría por fila (creación, ediciones, anulación/inactivación,
-    restauración, importación) — ver apps.historial. key_record/nom_tabla identifican el
-    registro puntual, no hace falta que el frontend sepa nada de ese esquema."""
-    categoria = _owned_categoria_or_404(categoria_id, request.user)
+    restauración, importación) — ver apps.historial."""
+    cuenta = _owned_cuenta_or_404(cuenta_id, request.user)
     historial = (
-        Historial.objects.filter(nom_tabla=_TABLA, key_record=str(categoria.id))
+        Historial.objects.filter(nom_tabla=_TABLA, key_record=str(cuenta.id))
         .select_related("key_usuario")
         .order_by("-fecha_hora")
     )
@@ -102,11 +103,11 @@ def categoria_historial(request, categoria_id):
 @log_data_access
 @require_permission(constants.PERM_READ)
 @api_view(["GET"])
-def categoria_historial_detalle(request, categoria_id, historial_id):
+def cuenta_historial_detalle(request, cuenta_id, historial_id):
     """Columna por columna qué valor tenía antes y cuál después, para un evento puntual del
     historial (botón "Detalle" en el frontend)."""
-    categoria = _owned_categoria_or_404(categoria_id, request.user)
-    historial = Historial.objects.filter(id=historial_id, nom_tabla=_TABLA, key_record=str(categoria.id)).first()
+    cuenta = _owned_cuenta_or_404(cuenta_id, request.user)
+    historial = Historial.objects.filter(id=historial_id, nom_tabla=_TABLA, key_record=str(cuenta.id)).first()
     if historial is None:
         raise Http404
     detalles = historial.detalles.order_by("columna")
@@ -114,125 +115,118 @@ def categoria_historial_detalle(request, categoria_id, historial_id):
 
 
 # Un nombre ya usado por un registro Activo o Inactivo del mismo usuario bloquea crear/
-# renombrar a ese nombre — uno Anulado no: anular "libera" el nombre para volver a crear
-# (el anulado en sí no se toca ni se reactiva por esto, ver _parse_categorias_file para el
-# caso de importación, que si reactiva cuando el que coincide es Inactivo).
-def _find_blocking_duplicate(usuario, name: str, exclude_id=None) -> Categoria | None:
-    qs = Categoria.objects.filter(key_user=usuario, name__iexact=name).exclude(key_status__name=VOIDED_STATUS_NAME)
+# renombrar a ese nombre — uno Anulado no (mismo criterio que Categoria/Moneda, ver
+# categoria/views.py).
+def _find_blocking_duplicate(usuario, name: str, exclude_id=None) -> Cuenta | None:
+    qs = Cuenta.objects.filter(key_user=usuario, name__iexact=name).exclude(key_status__name=VOIDED_STATUS_NAME)
     if exclude_id:
         qs = qs.exclude(id=exclude_id)
     return qs.select_related("key_status").first()
 
 
-def _crear_categorias(payload: list[dict], usuario, active_status) -> None:
+def _crear_cuentas(payload: list[dict], usuario, active_status) -> None:
     for row in payload:
         name = (row.get("name") or "").strip()
         if name and _find_blocking_duplicate(usuario, name):
             raise ValidationError(message.nombre_duplicado(name))
-        serializer = CategoriaSerializer(data=row)
+        serializer = CuentaSerializer(data=row, context={"usuario": usuario})
         serializer.is_valid(raise_exception=True)
-        categoria = serializer.save(
+        cuenta = serializer.save(
             key_user=usuario,
             key_status=active_status,
             key_creator_user=usuario,
             key_updater_user=usuario,
         )
-        _registrar_creacion(usuario=usuario, instance=categoria)
+        _registrar_creacion(usuario=usuario, instance=cuenta)
 
 
-def _actualizar_categorias(payload: list[dict], usuario) -> None:
+def _actualizar_cuentas(payload: list[dict], usuario) -> None:
     for row in payload:
-        categoria_id = row.get("id")
-        if not categoria_id:
+        cuenta_id = row.get("id")
+        if not cuenta_id:
             raise ValidationError(message.UPDATE_SIN_ID)
-        categoria = Categoria.objects.filter(id=categoria_id, key_user=usuario).first()
-        if categoria is None:
-            raise ValidationError(message.categoria_no_existe(categoria_id))
+        cuenta = Cuenta.objects.filter(id=cuenta_id, key_user=usuario).first()
+        if cuenta is None:
+            raise ValidationError(message.cuenta_no_existe(cuenta_id))
         new_name = (row.get("name") or "").strip()
-        if new_name and new_name.lower() != categoria.name.strip().lower():
-            if _find_blocking_duplicate(usuario, new_name, exclude_id=categoria.id):
+        if new_name and new_name.lower() != cuenta.name.strip().lower():
+            if _find_blocking_duplicate(usuario, new_name, exclude_id=cuenta.id):
                 raise ValidationError(message.nombre_duplicado(new_name))
-        antes = snapshot(categoria)
-        serializer = CategoriaSerializer(categoria, data=row, partial=True)
+        antes = snapshot(cuenta)
+        serializer = CuentaSerializer(cuenta, data=row, partial=True, context={"usuario": usuario})
         serializer.is_valid(raise_exception=True)
-        categoria = serializer.save(key_updater_user=usuario)
-        _registrar_actualizacion(usuario=usuario, antes=antes, despues_instance=categoria)
+        cuenta = serializer.save(key_updater_user=usuario)
+        _registrar_actualizacion(usuario=usuario, antes=antes, despues_instance=cuenta)
 
 
-def _anular_categorias(voided_ids: list[str], usuario, voided_status) -> None:
+def _anular_cuentas(voided_ids: list[str], usuario, voided_status) -> None:
     to_void = list(
-        Categoria.objects.filter(id__in=voided_ids, key_user=usuario).select_related("key_tipo", "key_status")
+        Cuenta.objects.filter(id__in=voided_ids, key_user=usuario).select_related("key_tipo", "key_moneda", "key_status")
     )
     if len(to_void) != len(set(voided_ids)):
         raise ValidationError(message.ANULAR_NO_EXISTE)
 
-    antes_por_id = {categoria.id: snapshot(categoria) for categoria in to_void}
-    Categoria.objects.filter(id__in=voided_ids, key_user=usuario).update(
+    antes_por_id = {cuenta.id: snapshot(cuenta) for cuenta in to_void}
+    Cuenta.objects.filter(id__in=voided_ids, key_user=usuario).update(
         key_status=voided_status, key_updater_user=usuario
     )
-    for categoria in to_void:
-        categoria.key_status = voided_status
-        categoria.key_updater_user = usuario
-        _registrar_actualizacion(usuario=usuario, antes=antes_por_id[categoria.id], despues_instance=categoria, evento="delete")
+    for cuenta in to_void:
+        cuenta.key_status = voided_status
+        cuenta.key_updater_user = usuario
+        _registrar_actualizacion(usuario=usuario, antes=antes_por_id[cuenta.id], despues_instance=cuenta, evento="delete")
 
 
-# Inversa de _anular_categorias (y de _inactivar_categorias, más abajo): vuelve a Activo una
-# categoría Anulada O Inactiva, no distingue cuál de las dos era — a las dos las manda acá
-# el mismo botón "Activar registro" del menú click-derecho (ver isRowVoided/isRowInactive en
-# crud-grid.tsx). Mismo patrón (select + update en lote + historial fila por fila),
-# evento="update" (default) en vez de "delete" porque no es una baja, es deshacerla.
-def _restaurar_categorias(restored_ids: list[str], usuario, active_status) -> None:
+# Inversa de _anular_cuentas (y de _inactivar_cuentas, más abajo): vuelve a Activo una
+# cuenta Anulada O Inactiva, no distingue cuál de las dos era — a las dos las manda acá el
+# mismo botón "Activar registro" del menú click-derecho (ver isRowVoided/isRowInactive en
+# crud-grid.tsx).
+def _restaurar_cuentas(restored_ids: list[str], usuario, active_status) -> None:
     to_restore = list(
-        Categoria.objects.filter(id__in=restored_ids, key_user=usuario).select_related("key_tipo", "key_status")
+        Cuenta.objects.filter(id__in=restored_ids, key_user=usuario).select_related(
+            "key_tipo", "key_moneda", "key_status"
+        )
     )
     if len(to_restore) != len(set(restored_ids)):
         raise ValidationError(message.RESTAURAR_NO_EXISTE)
 
-    antes_por_id = {categoria.id: snapshot(categoria) for categoria in to_restore}
-    Categoria.objects.filter(id__in=restored_ids, key_user=usuario).update(
+    antes_por_id = {cuenta.id: snapshot(cuenta) for cuenta in to_restore}
+    Cuenta.objects.filter(id__in=restored_ids, key_user=usuario).update(
         key_status=active_status, key_updater_user=usuario
     )
-    for categoria in to_restore:
-        categoria.key_status = active_status
-        categoria.key_updater_user = usuario
-        _registrar_actualizacion(usuario=usuario, antes=antes_por_id[categoria.id], despues_instance=categoria)
+    for cuenta in to_restore:
+        cuenta.key_status = active_status
+        cuenta.key_updater_user = usuario
+        _registrar_actualizacion(usuario=usuario, antes=antes_por_id[cuenta.id], despues_instance=cuenta)
 
 
-# Como _anular_categorias pero a Inactivo en vez de Anulado — evento="update" (default,
-# no "delete") porque a diferencia de anular, esto no es una baja del registro.
-def _inactivar_categorias(inactivated_ids: list[str], usuario, inactive_status) -> None:
+# Como _anular_cuentas pero a Inactivo en vez de Anulado — evento="update" (default, no
+# "delete") porque a diferencia de anular, esto no es una baja del registro.
+def _inactivar_cuentas(inactivated_ids: list[str], usuario, inactive_status) -> None:
     to_inactivate = list(
-        Categoria.objects.filter(id__in=inactivated_ids, key_user=usuario).select_related("key_tipo", "key_status")
+        Cuenta.objects.filter(id__in=inactivated_ids, key_user=usuario).select_related(
+            "key_tipo", "key_moneda", "key_status"
+        )
     )
     if len(to_inactivate) != len(set(inactivated_ids)):
         raise ValidationError(message.INACTIVAR_NO_EXISTE)
 
-    antes_por_id = {categoria.id: snapshot(categoria) for categoria in to_inactivate}
-    Categoria.objects.filter(id__in=inactivated_ids, key_user=usuario).update(
+    antes_por_id = {cuenta.id: snapshot(cuenta) for cuenta in to_inactivate}
+    Cuenta.objects.filter(id__in=inactivated_ids, key_user=usuario).update(
         key_status=inactive_status, key_updater_user=usuario
     )
-    for categoria in to_inactivate:
-        categoria.key_status = inactive_status
-        categoria.key_updater_user = usuario
-        _registrar_actualizacion(usuario=usuario, antes=antes_por_id[categoria.id], despues_instance=categoria)
+    for cuenta in to_inactivate:
+        cuenta.key_status = inactive_status
+        cuenta.key_updater_user = usuario
+        _registrar_actualizacion(usuario=usuario, antes=antes_por_id[cuenta.id], despues_instance=cuenta)
 
 
 @log_data_access
 @require_permission()
 @api_view(["POST"])
-def bulk_save_categorias(request):
+def bulk_save_cuentas(request):
     """Guarda de una vez lo que el usuario acumuló en la grilla: filas nuevas, celdas
-    editadas, anulaciones, inactivaciones y restauraciones (individuales o masivas, da igual
-    — todo llega acá como listas).
-
-    No usa require_permission(decorator_name) con un permiso fijo porque un mismo request
-    puede mezclar create+update+delete; se valida cada bolsa del payload contra el permiso
-    que le corresponde, a mano, con build_user_access. Sigue siendo un único request/response
-    (mismo contrato con el frontend, ver categorias-api.ts) y una única transacción atómica
-    (todo o nada) — lo único que cambia es que el procesamiento de cada bolsa vive en su
-    propia función (_crear_categorias/_actualizar_categorias/_anular_categorias/etc.), así
-    cada una se puede leer y testear por separado.
-    """
+    editadas, anulaciones, inactivaciones y restauraciones — mismo contrato que
+    bulk_save_categorias/bulk_save_monedas (ver categoria/views.py)."""
     access = build_user_access(request.user)
     created_payload = request.data.get("created") or []
     updated_payload = request.data.get("updated") or []
@@ -257,30 +251,30 @@ def bulk_save_categorias(request):
 
     with transaction.atomic():
         if created_payload:
-            _crear_categorias(created_payload, request.user, active_status)
+            _crear_cuentas(created_payload, request.user, active_status)
         if updated_payload:
-            _actualizar_categorias(updated_payload, request.user)
+            _actualizar_cuentas(updated_payload, request.user)
         if voided_ids:
-            _anular_categorias(voided_ids, request.user, voided_status)
+            _anular_cuentas(voided_ids, request.user, voided_status)
         if restored_ids:
-            _restaurar_categorias(restored_ids, request.user, active_status)
+            _restaurar_cuentas(restored_ids, request.user, active_status)
         if inactivated_ids:
-            _inactivar_categorias(inactivated_ids, request.user, inactive_status)
+            _inactivar_cuentas(inactivated_ids, request.user, inactive_status)
 
-    categorias = _user_categorias(request.user).order_by("key_status__name", "name")
-    return Response(CategoriaSerializer(categorias, many=True).data)
+    cuentas = _user_cuentas(request.user).order_by("key_status__name", "name")
+    return Response(CuentaSerializer(cuentas, many=True).data)
 
 
 @log_data_access
 @require_permission(constants.PERM_IMPORT)
 @api_view(["GET"])
-def categorias_template(request):
+def cuentas_template(request):
     df = pd.DataFrame(
-        [["Comida", "Gasto", "Almuerzo y supermercado", "#22c55e", "i-lucide-utensils"]],
+        [["Efectivo", "Efectivo", "PEN", "", "Juan Pérez"]],
         columns=constants.TEMPLATE_COLUMNS,
     )
     return excel_utils.dataframe_to_xlsx_response(
-        df, "plantilla_categorias.xlsx", constants.SHEET_NAME, ACTIVE_STATUS_NAME, VOIDED_STATUS_NAME
+        df, "plantilla_cuentas.xlsx", constants.SHEET_NAME, ACTIVE_STATUS_NAME, VOIDED_STATUS_NAME
     )
 
 
@@ -296,57 +290,42 @@ _EXPORT_STATUS_FILTERS = {
 @log_data_access
 @require_permission(constants.PERM_EXPORT)
 @api_view(["GET"])
-def export_categorias(request):
-    categorias = _user_categorias(request.user)
+def export_cuentas(request):
+    cuentas = _user_cuentas(request.user)
     # Exporta lo mismo que se está viendo en la grilla en ese momento (Activos/Inactivos/
-    # Anulados/Todos), no siempre todo — ver handleExport en crud-grid.tsx, que manda el
-    # statusFilter actual.
+    # Anulados/Todos), no siempre todo — ver handleExport en crud-grid.tsx.
     status_name = _EXPORT_STATUS_FILTERS.get(request.GET.get("status"))
     if status_name:
-        categorias = categorias.filter(key_status__name=status_name)
-    categorias = categorias.order_by("name")
+        cuentas = cuentas.filter(key_status__name=status_name)
+    cuentas = cuentas.order_by("name")
     df = pd.DataFrame(
         [
             {
-                "Nombre": categoria.name,
-                "Tipo": categoria.key_tipo.name if categoria.key_tipo else "",
-                "Descripción": categoria.description or "",
-                "Color": categoria.color or "",
-                "Ícono": categoria.icon or "",
-                "Estado": categoria.key_status.name if categoria.key_status else "",
+                "Nombre": cuenta.name,
+                "Tipo": cuenta.key_tipo.name if cuenta.key_tipo else "",
+                "Moneda": cuenta.key_moneda.code if cuenta.key_moneda else "",
+                "N° de Cuenta": cuenta.account_number or "",
+                "Titular": cuenta.titular_name or "",
+                "Estado": cuenta.key_status.name if cuenta.key_status else "",
             }
-            for categoria in categorias
+            for cuenta in cuentas
         ],
         columns=[*constants.TEMPLATE_COLUMNS, "Estado"],
     )
     return excel_utils.dataframe_to_xlsx_response(
-        df, "categorias.xlsx", constants.SHEET_NAME, ACTIVE_STATUS_NAME, VOIDED_STATUS_NAME
+        df, "cuentas.xlsx", constants.SHEET_NAME, ACTIVE_STATUS_NAME, VOIDED_STATUS_NAME
     )
 
 
-def _parse_categorias_file(
+def _parse_cuentas_file(
     uploaded, user, progress_cb: Callable[[int, int], None] | None = None
-) -> tuple[list[dict], list[dict], list[Categoria], list[tuple[Categoria, dict]]]:
-    """Lee y valida el .xlsx de categorías. No toca la base de datos — separado de la
+) -> tuple[list[dict], list[dict], list[Cuenta], list[tuple[Cuenta, dict]]]:
+    """Lee y valida el .xlsx de cuentas. No toca la base de datos — separado de la
     escritura para que el mismo parseo alimente tanto la vista de validación (preview, sin
-    guardar nada) como la de importación real (que además hace el bulk_create/bulk_update).
-
-    Las filas devueltas usan las mismas claves ("name", "tipo", ...) que el resto del
-    frontend (columnas de la grilla, payload de bulk-save), no los encabezados en español
-    del Excel — así el componente de preview puede resaltar la celda con error por su
-    `data` de columna, sin tener que traducir encabezados.
-
-    progress_cb(procesadas, total), si se pasa, se llama con el avance real fila a fila —
-    lo usa run_categorias_import_validation_job_body para que el frontend pueda mostrar un
-    % real en vez de un spinner ciego (ver CategoriaImportJob). Import (paso 2) no lo necesita, así que
-    ahí queda en None.
-
-    Un nombre que coincide con un registro existente Activo o (cualquier otro status que no
-    sea Anulado/Inactivo) es un duplicado real → error. Uno Anulado no bloquea — se crea un
-    registro nuevo aparte, el anulado queda como está (mismo criterio que
-    _find_blocking_duplicate para crear/editar a mano). Uno Inactivo sí bloquea la creación,
-    pero en vez de ser un error, esa fila reactiva ese registro (to_reactivate) en lugar de
-    crear uno nuevo — es el único caso donde importar reactiva algo.
+    guardar nada) como la de importación real. Mismo criterio que
+    _parse_categorias_file (ver categoria/views.py): un nombre que coincide con un
+    registro Activo bloquea, uno Anulado no, y uno Inactivo reactiva en vez de bloquear o
+    crear otro.
     """
     if uploaded is None:
         raise ValidationError(message.FALTA_ARCHIVO)
@@ -356,7 +335,7 @@ def _parse_categorias_file(
     except Exception as exc:
         raise ValidationError(message.archivo_ilegible(exc)) from exc
 
-    missing_columns = {"Nombre", "Tipo"} - set(df.columns)
+    missing_columns = {"Nombre", "Tipo", "Moneda"} - set(df.columns)
     if missing_columns:
         raise ValidationError(message.columnas_faltantes(missing_columns))
 
@@ -365,22 +344,25 @@ def _parse_categorias_file(
         progress_cb(0, total_rows)
 
     tipos_by_name = {
-        tipo.name.strip().lower(): tipo for tipo in TipoCategoria.objects.filter(key_status__name=ACTIVE_STATUS_NAME)
+        tipo.name.strip().lower(): tipo for tipo in TipoCuenta.objects.filter(key_status__name=ACTIVE_STATUS_NAME)
+    }
+    monedas_by_code = {
+        moneda.code.strip().upper(): moneda
+        for moneda in Moneda.objects.filter(key_user=user, key_status__name=ACTIVE_STATUS_NAME)
     }
     # Si el mismo nombre tiene más de un registro (p.ej. uno Anulado y otro Activo, posible
-    # justamente porque Anulado ya no bloquea crear), el que importa acá es el no-Anulado —
-    # es el que puede bloquear o reactivarse; el Anulado es como si no existiera para esto.
-    existing_by_name: dict[str, Categoria] = {}
-    for categoria in _user_categorias(user):
-        key = categoria.name.strip().lower()
+    # justamente porque Anulado ya no bloquea crear), el que importa acá es el no-Anulado.
+    existing_by_name: dict[str, Cuenta] = {}
+    for cuenta in _user_cuentas(user):
+        key = cuenta.name.strip().lower()
         current = existing_by_name.get(key)
         if current is None or (current.key_status and current.key_status.name == VOIDED_STATUS_NAME):
-            existing_by_name[key] = categoria
+            existing_by_name[key] = cuenta
 
     preview_rows: list[dict] = []
     errors: list[dict] = []
-    to_create: list[Categoria] = []
-    to_reactivate: list[tuple[Categoria, dict]] = []
+    to_create: list[Cuenta] = []
+    to_reactivate: list[tuple[Cuenta, dict]] = []
     seen_names: set[str] = set()
     active_status = get_status_by_name(ACTIVE_STATUS_NAME)
     last_reported_percent = -1
@@ -400,17 +382,23 @@ def _parse_categorias_file(
 
         name = str(row.get("Nombre", "")).strip()
         tipo_name = str(row.get("Tipo", "")).strip()
-        description = str(row.get("Descripción", "")).strip()
-        color = str(row.get("Color", "")).strip()
-        icon = str(row.get("Ícono", "")).strip()
+        moneda_code = str(row.get("Moneda", "")).strip().upper()
+        account_number = str(row.get("N° de Cuenta", "")).strip()
+        titular_name = str(row.get("Titular", "")).strip()
 
-        if not name and not tipo_name:
+        if not name and not tipo_name and not moneda_code:
             continue  # fila en blanco, se ignora
 
         preview_rows.append(
             {
                 "row": excel_row,
-                "fields": {"name": name, "tipo": tipo_name, "description": description, "color": color, "icon": icon},
+                "fields": {
+                    "name": name,
+                    "tipo": tipo_name,
+                    "moneda": moneda_code,
+                    "account_number": account_number,
+                    "titular_name": titular_name,
+                },
             }
         )
 
@@ -433,6 +421,11 @@ def _parse_categorias_file(
             errors.append({"row": excel_row, "field": "tipo", "message": message.tipo_invalido(tipo_name)})
             row_had_error = True
 
+        moneda = monedas_by_code.get(moneda_code)
+        if moneda is None:
+            errors.append({"row": excel_row, "field": "moneda", "message": message.moneda_invalida(moneda_code)})
+            row_had_error = True
+
         if row_had_error:
             continue
 
@@ -440,21 +433,21 @@ def _parse_categorias_file(
         if existing is not None and existing_status_name == INACTIVE_STATUS_NAME:
             antes = snapshot(existing)
             existing.key_tipo = tipo
-            existing.description = description or None
-            existing.color = color or None
-            existing.icon = icon or None
+            existing.key_moneda = moneda
+            existing.account_number = account_number or None
+            existing.titular_name = titular_name or None
             existing.key_status = active_status
             existing.key_updater_user = user
             to_reactivate.append((existing, antes))
         else:
             to_create.append(
-                Categoria(
+                Cuenta(
                     key_user=user,
                     key_tipo=tipo,
+                    key_moneda=moneda,
                     name=name,
-                    description=description or None,
-                    color=color or None,
-                    icon=icon or None,
+                    account_number=account_number or None,
+                    titular_name=titular_name or None,
                     key_status=active_status,
                     key_creator_user=user,
                     key_updater_user=user,
@@ -473,27 +466,32 @@ def _job_error_message(exc: Exception) -> str:
     return str(exc)
 
 
-def run_categorias_import_validation_job_body(job_id, file_bytes: bytes, user_id) -> None:
+def run_cuentas_import_validation_job_body(job_id, file_bytes: bytes, user_id) -> None:
     """Cuerpo real de la task de Celery (ver apps.configuraciones.tasks.
-    run_categorias_import_validation_job) — mismo criterio que moneda/views.py y
-    cuenta/views.py."""
+    run_cuentas_import_validation_job, que la llama ya con el archivo decodificado de
+    base64). Sin el leading underscore: ahora se importa desde otro módulo, no solo se usa
+    acá adentro.
+
+    close_old_connections() sigue haciendo falta aunque ya no sea un thread manual: cada
+    proceso worker de Celery reusa conexiones entre tasks, así que fuerza una conexión
+    fresca al empezar (por si la anterior se cayó) y libera la suya al terminar."""
     close_old_connections()
     try:
         user = get_user_model().objects.get(pk=user_id)
         done_status = get_status_by_name(JOB_DONE_STATUS_NAME)
 
         def progress_cb(processed: int, total: int) -> None:
-            CategoriaImportJob.objects.filter(pk=job_id).update(processed_rows=processed, total_rows=total)
+            CuentaImportJob.objects.filter(pk=job_id).update(processed_rows=processed, total_rows=total)
 
-        preview_rows, errors, _, _ = _parse_categorias_file(io.BytesIO(file_bytes), user, progress_cb=progress_cb)
-        CategoriaImportJob.objects.filter(pk=job_id).update(
+        preview_rows, errors, _, _ = _parse_cuentas_file(io.BytesIO(file_bytes), user, progress_cb=progress_cb)
+        CuentaImportJob.objects.filter(pk=job_id).update(
             key_status=done_status, result={"rows": preview_rows, "errors": errors}
         )
     except Exception as exc:
         # Si esto no se atrapa acá, la excepción muere silenciosa en el hilo y el job queda
         # "Procesando" para siempre — el frontend seguiría consultando el estado sin parar.
         error_status = get_status_by_name(JOB_ERROR_STATUS_NAME)
-        CategoriaImportJob.objects.filter(pk=job_id).update(
+        CuentaImportJob.objects.filter(pk=job_id).update(
             key_status=error_status, error_message=_job_error_message(exc)
         )
     finally:
@@ -503,11 +501,11 @@ def run_categorias_import_validation_job_body(job_id, file_bytes: bytes, user_id
 @log_data_access
 @require_permission(constants.PERM_IMPORT)
 @api_view(["POST"])
-def start_categorias_import_validate(request):
+def start_cuentas_import_validate(request):
     """Arranca el análisis del archivo en un worker de Celery aparte y devuelve enseguida
-    un job_id — el frontend va consultando categorias_import_validate_status con ese id
-    hasta que termine, en vez de esperar a ciegas un solo request largo (ver
-    run_categorias_import_validation_job_body)."""
+    un job_id — el frontend va consultando cuentas_import_validate_status con ese id hasta
+    que termine, en vez de esperar a ciegas un solo request largo (ver
+    run_cuentas_import_validation_job_body)."""
     uploaded = request.FILES.get("file")
     if uploaded is None:
         raise ValidationError(message.FALTA_ARCHIVO)
@@ -515,28 +513,28 @@ def start_categorias_import_validate(request):
 
     # Housekeeping barato: en vez de un cron/management command aparte para purgar jobs
     # viejos, se limpian los del propio usuario cada vez que arranca uno nuevo.
-    CategoriaImportJob.objects.filter(
+    CuentaImportJob.objects.filter(
         key_user=request.user, creation_date__lt=timezone.now() - timedelta(hours=1)
     ).delete()
 
     processing_status = get_status_by_name(JOB_PROCESSING_STATUS_NAME)
-    job = CategoriaImportJob.objects.create(
+    job = CuentaImportJob.objects.create(
         key_user=request.user,
         key_status=processing_status,
         key_creator_user=request.user,
         key_updater_user=request.user,
     )
-    run_categorias_import_validation_job.delay(
-        str(job.id), base64.b64encode(file_bytes).decode("ascii"), str(request.user.id)
-    )
+    # El broker de Celery (Redis) serializa los argumentos de la task en JSON: bytes crudos
+    # no son serializables ahí, por eso viaja en base64 (ver apps.configuraciones.tasks).
+    run_cuentas_import_validation_job.delay(str(job.id), base64.b64encode(file_bytes).decode("ascii"), str(request.user.id))
     return Response({"job_id": str(job.id)}, status=status.HTTP_202_ACCEPTED)
 
 
 @log_data_access
 @require_permission(constants.PERM_IMPORT)
 @api_view(["GET"])
-def categorias_import_validate_status(request, job_id):
-    job = CategoriaImportJob.objects.filter(pk=job_id, key_user=request.user).select_related("key_status").first()
+def cuentas_import_validate_status(request, job_id):
+    job = CuentaImportJob.objects.filter(pk=job_id, key_user=request.user).select_related("key_status").first()
     if job is None:
         raise Http404
     job_status_name = job.key_status.name if job.key_status else None
@@ -555,28 +553,28 @@ def categorias_import_validate_status(request, job_id):
 @log_data_access
 @require_permission(constants.PERM_IMPORT)
 @api_view(["POST"])
-def import_categorias(request):
+def import_cuentas(request):
     """Confirma la importación: todo o nada, si alguna fila tiene un error no se crea
     ninguna (mismo parseo que la vista de validación). Además de crear, un nombre que
     coincide con un registro Inactivo lo reactiva (to_reactivate) en vez de crear uno
-    nuevo — ver _parse_categorias_file."""
+    nuevo — ver _parse_cuentas_file."""
     uploaded = request.FILES.get("file")
-    _, errors, to_create, to_reactivate = _parse_categorias_file(uploaded, request.user)
+    _, errors, to_create, to_reactivate = _parse_cuentas_file(uploaded, request.user)
 
     if errors:
         return Response({"committed": False, "created_count": 0, "errors": errors}, status=status.HTTP_400_BAD_REQUEST)
 
-    Categoria.objects.bulk_create(to_create)
-    for categoria in to_create:
-        _registrar_creacion(usuario=request.user, instance=categoria, evento="import")
+    Cuenta.objects.bulk_create(to_create)
+    for cuenta in to_create:
+        _registrar_creacion(usuario=request.user, instance=cuenta, evento="import")
 
     if to_reactivate:
-        Categoria.objects.bulk_update(
-            [categoria for categoria, _ in to_reactivate],
-            fields=["key_tipo", "description", "color", "icon", "key_status", "key_updater_user"],
+        Cuenta.objects.bulk_update(
+            [cuenta for cuenta, _ in to_reactivate],
+            fields=["key_tipo", "key_moneda", "account_number", "titular_name", "key_status", "key_updater_user"],
         )
-        for categoria, antes in to_reactivate:
-            _registrar_actualizacion(usuario=request.user, antes=antes, despues_instance=categoria, evento="import")
+        for cuenta, antes in to_reactivate:
+            _registrar_actualizacion(usuario=request.user, antes=antes, despues_instance=cuenta, evento="import")
 
     return Response(
         {"committed": True, "created_count": len(to_create) + len(to_reactivate), "errors": []}

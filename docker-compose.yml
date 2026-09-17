@@ -1,0 +1,128 @@
+# Nombre de proyecto DISTINTO al de backend/compose.dev.yml (que usa "gastos_ingresos") a
+# propósito: Compose namespacea contenedores/red/volúmenes por nombre de proyecto + nombre
+# de recurso. La primera versión de este archivo usaba el MISMO nombre de proyecto y el
+# mismo volumen "gastos_ingresos_postgres_data" que compose.dev.yml — el resultado real
+# (probado): este stack terminó montando el volumen de Postgres del entorno de desarrollo
+# de verdad (con datos reales) en vez de uno propio. Nombre de proyecto y de recursos acá
+# quedan sin nada en común con compose.dev.yml para que eso no pueda volver a pasar.
+name: gastos_ingresos_stack
+
+# Stack completo (nginx + frontend + backend + worker + redis + postgres), pensado para
+# probar la topología "real" en un solo host o como base de un deploy. Para desarrollo día
+# a día seguí usando backend/compose.dev.yml (hot-reload de Django + Vite por separado,
+# sin nginx de por medio) — este archivo reconstruye la imagen entera en cada cambio.
+#
+# Uso: cp .env.example .env (y backend/.env.example -> backend/.env si no existe) y
+# docker compose up --build. Queda todo en http://localhost (PUBLIC_ORIGIN/HTTP_PORT).
+#
+# Sigue siendo un monolito Django puertas adentro (autenticacion/seguridad/configuraciones/
+# historial comparten una sola base): lo que separa "backend" y "worker" es la topología de
+# despliegue (dos procesos de la misma imagen, uno atendiendo HTTP y otro consumiendo la
+# cola de Celery), no un rediseño en microservicios de dominio.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: always
+    environment:
+      POSTGRES_DB: ${DB_NAME:-gastos_ingresos}
+      POSTGRES_USER: ${DB_USER:-gastos_ingresos}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-gastos_ingresos_pass}
+    volumes:
+      - stack_postgres_data:/var/lib/postgresql/data
+    networks: [stack_network]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-gastos_ingresos} -d ${DB_NAME:-gastos_ingresos}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: always
+    networks: [stack_network]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # Atiende HTTP (gunicorn). migrate/seed corren acá, no en el worker, para no tener dos
+  # procesos pisándose la migración al arrancar juntos.
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: always
+    env_file:
+      - backend/.env
+    environment:
+      DATABASE_URL: postgres://${DB_USER:-gastos_ingresos}:${DB_PASSWORD:-gastos_ingresos_pass}@postgres:5432/${DB_NAME:-gastos_ingresos}
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
+      DJANGO_DEBUG: "False"
+      DJANGO_ALLOWED_HOSTS: localhost,127.0.0.1,backend
+      CORS_ALLOWED_ORIGINS: ${PUBLIC_ORIGIN:-http://localhost}
+      CSRF_TRUSTED_ORIGINS: ${PUBLIC_ORIGIN:-http://localhost}
+      # Sin esto la sesión/CSRF no sobreviven: con DEBUG=False, settings.py pone estas dos
+      # en True por default (ver config/settings.py), y una cookie "Secure" no la manda el
+      # navegador por HTTP plano. Sacar estos dos overrides en cuanto nginx tenga TLS real.
+      SESSION_COOKIE_SECURE: "False"
+      CSRF_COOKIE_SECURE: "False"
+    command:
+      - /bin/sh
+      - -lc
+      - |
+        python manage.py migrate &&
+        python manage.py seed_local_db &&
+        gunicorn config.wsgi:application --bind 0.0.0.0:8000
+    networks: [stack_network]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # Misma imagen que "backend", solo cambia el comando: consume la cola de Celery en vez
+  # de atender HTTP (ver apps.configuraciones.tasks — validación de imports Excel).
+  worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: always
+    env_file:
+      - backend/.env
+    environment:
+      DATABASE_URL: postgres://${DB_USER:-gastos_ingresos}:${DB_PASSWORD:-gastos_ingresos_pass}@postgres:5432/${DB_NAME:-gastos_ingresos}
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
+      DJANGO_DEBUG: "False"
+    command: celery -A config worker --loglevel=info --concurrency=2
+    networks: [stack_network]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # Sirve el build de React y hace de reverse proxy hacia "backend" para /api, /admin y
+  # /static (ver nginx/nginx.conf) — es el único puerto expuesto al host.
+  nginx:
+    build:
+      context: .
+      dockerfile: nginx/Dockerfile
+      args:
+        VITE_URL_BASE: ${VITE_URL_BASE:-}
+    restart: always
+    ports:
+      - "${HTTP_PORT:-80}:80"
+    networks: [stack_network]
+    depends_on:
+      - backend
+
+networks:
+  stack_network:
+    driver: bridge
+
+volumes:
+  stack_postgres_data:

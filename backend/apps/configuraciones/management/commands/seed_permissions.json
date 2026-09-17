@@ -18,7 +18,7 @@
     },
     {
       "id": "1f71218e-d5a0-4f23-bd7d-a824bdaa18e1",
-      "decorator_name": "update",
+      "decorator_name": "configuracion-categorias-update",
       "api_url": "/api/configuraciones/categorias/bulk-save/#update",
       "module_name": "configuracion-categorias-update",
       "key_action_id": "d630928b-1b0a-4d2d-8b31-b7e1e4fd6967",
@@ -26,7 +26,7 @@
     },
     {
       "id": "582f6f56-ccc6-4264-9232-38ade50774c2",
-      "decorator_name": "delete",
+      "decorator_name": "configuracion-categorias-delete",
       "api_url": "/api/configuraciones/categorias/bulk-save/#delete",
       "module_name": "configuracion-categorias-delete",
       "key_action_id": "5760e298-a039-4993-9d3c-0f4140e5cf63",
@@ -34,7 +34,7 @@
     },
     {
       "id": "9dbf2961-a9e0-46a2-a63e-13c3947098d1",
-      "decorator_name": "mport",
+      "decorator_name": "configuracion-categorias-import",
       "api_url": "/api/configuraciones/categorias/import/",
       "module_name": "configuracion-categorias-import",
       "key_action_id": "4f8a65b3-8b75-493f-a3ef-2bacc0902221",
@@ -42,9 +42,105 @@
     },
     {
       "id": "f03deba0-af72-41d0-b17a-e5c8450d10de",
-      "decorator_name": "export",
+      "decorator_name": "configuracion-categorias-export",
       "api_url": "/api/configuraciones/categorias/export/",
       "module_name": "configuracion-categorias-export",
+      "key_action_id": "81c3eb5b-140a-41fa-a47d-f1d0d8ead7f2",
+      "key_status_id": "e6c00f21-8e37-4c26-9f52-a3db842809da"
+    },
+    {
+      "id": "89d19d3a-93f3-4693-bac1-864265be09d9",
+      "decorator_name": "configuracion-monedas-read",
+      "api_url": "/api/configuraciones/monedas/",
+      "module_name": "configuracion-monedas-read",
+      "key_action_id": "04b71593-d02c-48b5-906c-93939e64dde4",
+      "key_status_id": "e6c00f21-8e37-4c26-9f52-a3db842809da"
+    },
+    {
+      "id": "9a6296cf-8791-4759-833c-811199280c31",
+      "decorator_name": "configuracion-monedas-create",
+      "api_url": "/api/configuraciones/monedas/bulk-save/#create",
+      "module_name": "configuracion-monedas-create",
+      "key_action_id": "c439e7aa-4b12-4704-9134-7316a64fbeae",
+      "key_status_id": "e6c00f21-8e37-4c26-9f52-a3db842809da"
+    },
+    {
+      "id": "28583a8f-88f3-40f0-b3c7-068c932eccb8",
+      "decorator_name": "configuracion-monedas-update",
+      "api_url": "/api/configuraciones/monedas/bulk-save/#update",
+      "module_name": "configuracion-monedas-update",
+      "key_action_id": "d630928b-1b0a-4d2d-8b31-b7e1e4fd6967",
+      "key_status_id": "e6c00f21-8e37-4c26-9f52-a3db842809da"
+    },
+    {
+      "id": "7464a65c-0ada-4980-ad7e-884f6ab64760",
+      "decorator_name": "configuracion-monedas-delete",
+      "api_url": "/api/configuraciones/monedas/bulk-save/#delete",
+      "module_name": "configuracion-monedas-delete",
+      "key_action_id": "5760e298-a039-4993-9d3c-0f4140e5cf63",
+      "key_status_id": "e6c00f21-8e37-4c26-9f52-a3db842809da"
+    },
+    {
+      "id": "8b83dd6d-2586-4b44-8be3-6274210f960a",
+      "decorator_name": "configuracion-monedas-import",
+      "api_url": "/api/configuraciones/monedas/import/",
+      "module_name": "configuracion-monedas-import",
+      "key_action_id": "4f8a65b3-8b75-493f-a3ef-2bacc0902221",
+      "key_status_id": "e6c00f21-8e37-4c26-9f52-a3db842809da"
+    },
+    {
+      "id": "2b9cae14-3179-418d-8c31-d5ebd2266f06",
+      "decorator_name": "configuracion-monedas-export",
+      "api_url": "/api/configuraciones/monedas/export/",
+      "module_name": "configuracion-monedas-export",
+      "key_action_id": "81c3eb5b-140a-41fa-a47d-f1d0d8ead7f2",
+      "key_status_id": "e6c00f21-8e37-4c26-9f52-a3db842809da"
+    },
+    {
+      "id": "fb8cdec5-9bef-4c5a-9422-3c23c1bd273f",
+      "decorator_name": "configuracion-cuentas-read",
+      "api_url": "/api/configuraciones/cuentas/",
+      "module_name": "configuracion-cuentas-read",
+      "key_action_id": "04b71593-d02c-48b5-906c-93939e64dde4",
+      "key_status_id": "e6c00f21-8e37-4c26-9f52-a3db842809da"
+    },
+    {
+      "id": "3be288ba-4358-4857-b35f-a0996f42f5de",
+      "decorator_name": "configuracion-cuentas-create",
+      "api_url": "/api/configuraciones/cuentas/bulk-save/#create",
+      "module_name": "configuracion-cuentas-create",
+      "key_action_id": "c439e7aa-4b12-4704-9134-7316a64fbeae",
+      "key_status_id": "e6c00f21-8e37-4c26-9f52-a3db842809da"
+    },
+    {
+      "id": "ea8bbd65-98e8-4607-b5ba-e4fe3c72f739",
+      "decorator_name": "configuracion-cuentas-update",
+      "api_url": "/api/configuraciones/cuentas/bulk-save/#update",
+      "module_name": "configuracion-cuentas-update",
+      "key_action_id": "d630928b-1b0a-4d2d-8b31-b7e1e4fd6967",
+      "key_status_id": "e6c00f21-8e37-4c26-9f52-a3db842809da"
+    },
+    {
+      "id": "41cb76d1-1cc9-44b5-8e65-f6e1d18cd21b",
+      "decorator_name": "configuracion-cuentas-delete",
+      "api_url": "/api/configuraciones/cuentas/bulk-save/#delete",
+      "module_name": "configuracion-cuentas-delete",
+      "key_action_id": "5760e298-a039-4993-9d3c-0f4140e5cf63",
+      "key_status_id": "e6c00f21-8e37-4c26-9f52-a3db842809da"
+    },
+    {
+      "id": "43755ca5-10b7-468e-a59c-dd1098dddb3d",
+      "decorator_name": "configuracion-cuentas-import",
+      "api_url": "/api/configuraciones/cuentas/import/",
+      "module_name": "configuracion-cuentas-import",
+      "key_action_id": "4f8a65b3-8b75-493f-a3ef-2bacc0902221",
+      "key_status_id": "e6c00f21-8e37-4c26-9f52-a3db842809da"
+    },
+    {
+      "id": "93a9a07d-b050-4f16-9b9b-dc10dd5332d7",
+      "decorator_name": "configuracion-cuentas-export",
+      "api_url": "/api/configuraciones/cuentas/export/",
+      "module_name": "configuracion-cuentas-export",
       "key_action_id": "81c3eb5b-140a-41fa-a47d-f1d0d8ead7f2",
       "key_status_id": "e6c00f21-8e37-4c26-9f52-a3db842809da"
     }

@@ -102,15 +102,14 @@ export function AppLayout({
         </header>
         <div className="flex flex-1 flex-col gap-4 p-4">
           {/* Contadores e íconos son cada uno un bloque de una sola línea (ver `counters` y
-              `toolbar` en crud-grid.tsx, ninguno de los dos wrappea puertas adentro). Van
-              pegados uno al lado del otro (sin justify-between) para que el ícono de lupa
-              quede cerca de "nuevas", no empujado al otro extremo de la pantalla. Acá afuera
-              sí se permite wrap: si no entran los dos bloques juntos, el segundo cae entero a
-              una segunda línea — nunca se corta a la mitad ni queda scroll escondido, porque
-              cada bloque wrappea entero o no wrappea. */}
+              `toolbar` en crud-grid.tsx, ninguno de los dos wrappea puertas adentro). El
+              toolbar va pegado al borde derecho (ml-auto), los contadores al izquierdo. Acá
+              afuera sí se permite wrap: si no entran los dos bloques juntos, el segundo cae
+              entero a una segunda línea — nunca se corta a la mitad ni queda scroll escondido,
+              porque cada bloque wrappea entero o no wrappea. */}
           <div className="flex flex-wrap items-center gap-4">
             {summary}
-            {headerActions}
+            <div className="ml-auto">{headerActions}</div>
           </div>
           {children}
         </div>

@@ -48,6 +48,13 @@ ALL_SEED_CONFIGS: dict[str, SeedConfig] = {
             "Tipo categoria seed",
         ),
         SeedConfig(
+            "tipo_cuentas",
+            COMMANDS_DIR / "seed_tipo_cuentas.json",
+            "cfg_tipo_cuentas",
+            "tipo_cuenta_seed_data",
+            "Tipo cuenta seed",
+        ),
+        SeedConfig(
             "events",
             COMMANDS_DIR / "seed_events.json",
             "sec_events",

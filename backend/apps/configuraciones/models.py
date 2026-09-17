@@ -60,3 +60,5 @@ class System(BaseModel):
 # llega a esta línea, BaseModel ya está definido en este módulo, así que el import
 # circular se resuelve sin problema.
 from .categoria.models import Categoria, CategoriaImportJob, TipoCategoria  # noqa: E402,F401
+from .moneda.models import Moneda, MonedaImportJob  # noqa: E402,F401
+from .cuenta.models import Cuenta, CuentaImportJob, TipoCuenta  # noqa: E402,F401

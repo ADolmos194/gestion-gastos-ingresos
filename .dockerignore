@@ -1,0 +1,18 @@
+# Aplica al contexto de build de docker-compose.yml (raíz) — cubre tanto el build de
+# nginx (necesita frontend/) como, indirectamente, evita mandar basura innecesaria al
+# daemon en cualquier build futuro con este mismo contexto.
+.git
+.idea
+.venv
+
+frontend/node_modules
+frontend/dist
+frontend/dist-ssr
+frontend/.env
+frontend/.env.local
+
+backend/.env
+backend/staticfiles
+backend/__pycache__
+**/__pycache__
+**/*.pyc
