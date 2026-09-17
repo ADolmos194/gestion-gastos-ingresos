@@ -219,6 +219,17 @@ def list_cuentas(request):
     return Response(CuentaSerializer(cuentas, many=True).data)
 
 
+@log_data_access
+@require_permission(constants.PERM_READ)
+@api_view(["GET"])
+def list_cuentas_activas(request):
+    """Solo las Activas del usuario, ordenadas por nombre — alimenta el dropdown Cuenta de
+    Movimientos (ver apps.finanzas), mismo criterio que list_monedas_activas en
+    moneda/views.py."""
+    cuentas = _user_cuentas(request.user).filter(key_status__name=ACTIVE_STATUS_NAME).order_by("name")
+    return Response(CuentaSerializer(cuentas, many=True).data)
+
+
 def _owned_cuenta_or_404(cuenta_id, usuario) -> Cuenta:
     # No alcanza con que el id exista: tiene que ser DE ESTE usuario — si no, cualquiera
     # podría leer el historial de un registro ajeno adivinando/probando su UUID.

@@ -212,6 +212,17 @@ def list_categorias(request):
     return Response(CategoriaSerializer(categorias, many=True).data)
 
 
+@log_data_access
+@require_permission(constants.PERM_READ)
+@api_view(["GET"])
+def list_categorias_activas(request):
+    """Solo las Activas del usuario, ordenadas por nombre — alimenta el dropdown Categoría
+    de Movimientos (ver apps.finanzas), mismo criterio que list_monedas_activas en
+    moneda/views.py (que también expone un catálogo acotado para un dropdown ajeno)."""
+    categorias = _user_categorias(request.user).filter(key_status__name=ACTIVE_STATUS_NAME).order_by("name")
+    return Response(CategoriaSerializer(categorias, many=True).data)
+
+
 def _owned_categoria_or_404(categoria_id, usuario) -> Categoria:
     # No alcanza con que el id exista: tiene que ser DE ESTE usuario — si no, cualquiera
     # podría leer el historial de un registro ajeno adivinando/probando su UUID.

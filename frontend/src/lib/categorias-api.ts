@@ -72,6 +72,15 @@ export async function listCategorias(): Promise<Categoria[]> {
   return parseJsonResponse<Categoria[]>(response)
 }
 
+// Solo las Activas — alimenta el dropdown Categoría de Movimientos (ver
+// frontend/src/lib/movimientos-api.ts), mismo criterio que listMonedasActivas.
+export async function listCategoriasActivas(): Promise<Categoria[]> {
+  const response = await fetch(`${API_BASE_URL}/api/configuraciones/categorias/activas/`, {
+    credentials: "include",
+  })
+  return parseJsonResponse<Categoria[]>(response)
+}
+
 export async function bulkSaveCategorias(payload: CategoriaBulkSavePayload): Promise<Categoria[]> {
   const response = await fetch(`${API_BASE_URL}/api/configuraciones/categorias/bulk-save/`, {
     method: "POST",

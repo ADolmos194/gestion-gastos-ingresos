@@ -83,6 +83,13 @@
       "key_role_id": "9726bc04-3c0e-4ff5-b547-d4192b403ff5",
       "key_menu_id": "5b5ff6ef-3341-4723-b981-0c2bc37d4b55",
       "key_status_id": "e6c00f21-8e37-4c26-9f52-a3db842809da"
+    },
+    {
+      "id": "199a4ac6-798f-4b3f-bb81-ac22af3b1a43",
+      "description": "Finanzas > Movimientos",
+      "key_role_id": "9726bc04-3c0e-4ff5-b547-d4192b403ff5",
+      "key_menu_id": "5db86c9a-9668-4646-8fcc-a37ef9a7386b",
+      "key_status_id": "e6c00f21-8e37-4c26-9f52-a3db842809da"
     }
   ]
 }

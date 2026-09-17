@@ -107,6 +107,30 @@
       "key_role_id": "9726bc04-3c0e-4ff5-b547-d4192b403ff5",
       "key_permission_id": "93a9a07d-b050-4f16-9b9b-dc10dd5332d7",
       "key_status_id": "e6c00f21-8e37-4c26-9f52-a3db842809da"
+    },
+    {
+      "id": "738cc5fa-dc51-432d-92c1-7b757572b9ec",
+      "key_role_id": "9726bc04-3c0e-4ff5-b547-d4192b403ff5",
+      "key_permission_id": "6e2f7683-c948-4d15-b192-1f61cba7391c",
+      "key_status_id": "e6c00f21-8e37-4c26-9f52-a3db842809da"
+    },
+    {
+      "id": "233d8956-a869-4e1e-b7ea-6b3d636b7120",
+      "key_role_id": "9726bc04-3c0e-4ff5-b547-d4192b403ff5",
+      "key_permission_id": "01f24760-29b1-4785-94de-dbf1015d1749",
+      "key_status_id": "e6c00f21-8e37-4c26-9f52-a3db842809da"
+    },
+    {
+      "id": "e4864a96-a365-4830-8e8e-861174dbd42c",
+      "key_role_id": "9726bc04-3c0e-4ff5-b547-d4192b403ff5",
+      "key_permission_id": "577c2230-70fa-45b4-8658-b10ba0ff7cba",
+      "key_status_id": "e6c00f21-8e37-4c26-9f52-a3db842809da"
+    },
+    {
+      "id": "db165ad7-f285-4eb0-a081-61bf9d2f2356",
+      "key_role_id": "9726bc04-3c0e-4ff5-b547-d4192b403ff5",
+      "key_permission_id": "84c9742d-45e3-4ed5-8b30-aff1960a822e",
+      "key_status_id": "e6c00f21-8e37-4c26-9f52-a3db842809da"
     }
   ]
 }

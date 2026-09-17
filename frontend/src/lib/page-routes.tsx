@@ -16,6 +16,10 @@ export const pageRoutes: Record<string, PageRouteEntry> = {
     path: "/",
     component: lazy(() => import("@/pages/DashboardPage")),
   },
+  "GI-FinMovimientos": {
+    path: "/finanzas/movimientos",
+    component: lazy(() => import("@/pages/finanzas/movimientos/MovimientosPage")),
+  },
   "GI-ConfigCategorias": {
     path: "/config/maestras/categorias",
     component: lazy(() => import("@/pages/config/maestras/CategoriasPage")),

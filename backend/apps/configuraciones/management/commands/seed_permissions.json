@@ -143,6 +143,38 @@
       "module_name": "configuracion-cuentas-export",
       "key_action_id": "81c3eb5b-140a-41fa-a47d-f1d0d8ead7f2",
       "key_status_id": "e6c00f21-8e37-4c26-9f52-a3db842809da"
+    },
+    {
+      "id": "6e2f7683-c948-4d15-b192-1f61cba7391c",
+      "decorator_name": "finanzas-movimientos-read",
+      "api_url": "/api/finanzas/movimientos/",
+      "module_name": "finanzas-movimientos-read",
+      "key_action_id": "04b71593-d02c-48b5-906c-93939e64dde4",
+      "key_status_id": "e6c00f21-8e37-4c26-9f52-a3db842809da"
+    },
+    {
+      "id": "01f24760-29b1-4785-94de-dbf1015d1749",
+      "decorator_name": "finanzas-movimientos-create",
+      "api_url": "/api/finanzas/movimientos/bulk-save/#create",
+      "module_name": "finanzas-movimientos-create",
+      "key_action_id": "c439e7aa-4b12-4704-9134-7316a64fbeae",
+      "key_status_id": "e6c00f21-8e37-4c26-9f52-a3db842809da"
+    },
+    {
+      "id": "577c2230-70fa-45b4-8658-b10ba0ff7cba",
+      "decorator_name": "finanzas-movimientos-update",
+      "api_url": "/api/finanzas/movimientos/bulk-save/#update",
+      "module_name": "finanzas-movimientos-update",
+      "key_action_id": "d630928b-1b0a-4d2d-8b31-b7e1e4fd6967",
+      "key_status_id": "e6c00f21-8e37-4c26-9f52-a3db842809da"
+    },
+    {
+      "id": "84c9742d-45e3-4ed5-8b30-aff1960a822e",
+      "decorator_name": "finanzas-movimientos-delete",
+      "api_url": "/api/finanzas/movimientos/bulk-save/#delete",
+      "module_name": "finanzas-movimientos-delete",
+      "key_action_id": "5760e298-a039-4993-9d3c-0f4140e5cf63",
+      "key_status_id": "e6c00f21-8e37-4c26-9f52-a3db842809da"
     }
   ]
 }

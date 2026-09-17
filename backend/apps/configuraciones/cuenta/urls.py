@@ -4,6 +4,7 @@ from . import views
 
 urlpatterns = [
     path("cuentas/", views.list_cuentas, name="cuentas-list"),
+    path("cuentas/activas/", views.list_cuentas_activas, name="cuentas-activas-list"),
     path("cuentas/bulk-save/", views.bulk_save_cuentas, name="cuentas-bulk-save"),
     path("cuentas/import/", views.import_cuentas, name="cuentas-import"),
     path(

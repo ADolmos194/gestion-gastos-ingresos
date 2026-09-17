@@ -4,6 +4,7 @@ from . import views
 
 urlpatterns = [
     path("categorias/", views.list_categorias, name="categorias-list"),
+    path("categorias/activas/", views.list_categorias_activas, name="categorias-activas-list"),
     path("categorias/bulk-save/", views.bulk_save_categorias, name="categorias-bulk-save"),
     path("categorias/import/", views.import_categorias, name="categorias-import"),
     path(

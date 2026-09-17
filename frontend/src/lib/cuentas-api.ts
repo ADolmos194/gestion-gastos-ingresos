@@ -88,6 +88,15 @@ export async function listCuentas(): Promise<Cuenta[]> {
   return parseJsonResponse<Cuenta[]>(response)
 }
 
+// Solo las Activas — alimenta el dropdown Cuenta de Movimientos (ver
+// frontend/src/lib/movimientos-api.ts), mismo criterio que listMonedasActivas.
+export async function listCuentasActivas(): Promise<Cuenta[]> {
+  const response = await fetch(`${API_BASE_URL}/api/configuraciones/cuentas/activas/`, {
+    credentials: "include",
+  })
+  return parseJsonResponse<Cuenta[]>(response)
+}
+
 export async function bulkSaveCuentas(payload: CuentaBulkSavePayload): Promise<Cuenta[]> {
   const response = await fetch(`${API_BASE_URL}/api/configuraciones/cuentas/bulk-save/`, {
     method: "POST",

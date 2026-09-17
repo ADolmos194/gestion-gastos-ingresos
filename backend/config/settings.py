@@ -54,6 +54,7 @@ INSTALLED_APPS = [
     'apps.seguridad',
     'apps.configuraciones',
     'apps.historial',
+    'apps.finanzas',
 ]
 
 MIDDLEWARE = [
