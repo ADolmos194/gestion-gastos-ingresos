@@ -42,7 +42,7 @@ def build_user_access(user) -> UserAccess:
 
     if any(role.all_access for role in active_roles):
         # Acceso total: todo el menú activo del sistema Web, sin pasar por RoleMenu/PermissionRole.
-        menus = _build_menu_tree(
+        menus = build_menu_tree(
             Menu.objects.filter(
                 key_status__name__iexact=_ACTIVE_STATUS_NAME,
                 key_system__name__icontains=_WEB_SYSTEM_NAME_HINT,
@@ -57,7 +57,7 @@ def build_user_access(user) -> UserAccess:
         )
 
     role_ids = [role.id for role in active_roles]
-    menus = _build_menu_tree(_resolve_role_menus(role_ids))
+    menus = build_menu_tree(_resolve_role_menus(role_ids))
     permisos_front, permisos_back = _resolve_role_permissions(role_ids)
 
     return UserAccess(
@@ -123,7 +123,7 @@ def _resolve_role_permissions(role_ids: list) -> tuple[list[dict], list[str]]:
     return permisos_front, sorted(permisos_back)
 
 
-def _build_menu_tree(menus) -> list[dict]:
+def build_menu_tree(menus) -> list[dict]:
     menus = list(menus)
     nodes = {
         menu.id: {
