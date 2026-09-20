@@ -12,8 +12,11 @@ name: gastos_ingresos_stack
 # a día seguí usando backend/compose.dev.yml (hot-reload de Django + Vite por separado,
 # sin nginx de por medio) — este archivo reconstruye la imagen entera en cada cambio.
 #
-# Uso: cp .env.example .env (y backend/.env.example -> backend/.env si no existe) y
-# docker compose up --build. Queda todo en http://localhost (PUBLIC_ORIGIN/HTTP_PORT).
+# Uso: backend/.env.example -> backend/.env (completar variables; ese mismo archivo trae
+# DB_NAME/HTTP_PORT/PUBLIC_ORIGIN además de la config de Django — no hace falta un .env
+# separado en la raíz) y:
+#   docker compose --env-file backend/.env up --build
+# Queda todo en http://localhost (PUBLIC_ORIGIN/HTTP_PORT).
 #
 # Sigue siendo un monolito Django puertas adentro (autenticacion/seguridad/configuraciones/
 # historial comparten una sola base): lo que separa "backend" y "worker" es la topología de
@@ -111,8 +114,9 @@ services:
     build:
       context: .
       dockerfile: nginx/Dockerfile
-      args:
-        VITE_URL_BASE: ${VITE_URL_BASE:-}
+      # Sin build-arg: nginx/Dockerfile ya default-ea VITE_URL_BASE="" (same-origin,
+      # recomendado). Pasar --build-arg VITE_URL_BASE=... a mano si alguna vez el backend
+      # NO queda detrás de este mismo nginx.
     restart: always
     ports:
       - "${HTTP_PORT:-80}:80"

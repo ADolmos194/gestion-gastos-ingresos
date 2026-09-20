@@ -72,8 +72,8 @@ Levanta Postgres, Redis, el backend (con hot-reload) y el worker de Celery. El f
 ### Stack completo (nginx + TLS, para probar la topología de producción)
 
 ```bash
-cp .env.example .env         # en la raíz del repo
-docker compose up --build
+# usa backend/.env (completado en el paso anterior) — no hace falta otro .env en la raíz
+docker compose --env-file backend/.env up --build
 ```
 
 Levanta todo detrás de nginx (`https://localhost`, certificado self-signed hasta tener un dominio real) — ver los comentarios en `docker-compose.yml` y `nginx/nginx.conf` para el paso a un certificado real con certbot.
