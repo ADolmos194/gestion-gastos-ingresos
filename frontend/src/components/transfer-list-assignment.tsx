@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react"
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import { ChevronRightIcon, LoaderCircleIcon, MinusIcon, PlusIcon, SearchIcon } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { toastError, toastSuccess } from "@/lib/toast"
 import { cn } from "@/lib/utils"
 
@@ -32,21 +33,52 @@ interface TransferListAssignmentProps {
   saveAssigned: (ownerId: string, ids: string[]) => Promise<string[]>
 }
 
+// Cuánto dura la animación de salida de una fila antes de que realmente cambie de lista
+// (ver animateThenCommit) — tiene que coincidir con la duration-* que usan las clases
+// animate-out más abajo, si no la fila "salta" en vez de desvanecerse.
+const EXIT_MS = 150
+// Cuánto se mantiene el resalte (el tinte de fondo) en la fila recién llegada a la otra
+// lista, después de terminar su animación de entrada — puramente cosmético, para que la
+// mirada encuentre fácil "che, esto es lo que acabo de mover".
+const HIGHLIGHT_MS = 650
+
 function ItemRow({
   item,
   onToggle,
   icon,
+  exiting,
+  justMoved,
+  index,
 }: {
   item: TransferListCatalogItem
   onToggle: () => void
   icon: ReactNode
+  exiting: boolean
+  justMoved: boolean
+  index: number
 }) {
   return (
-    <li>
+    <li
+      className={cn(
+        "duration-150",
+        exiting
+          ? "pointer-events-none animate-out fade-out-0 zoom-out-95"
+          : "animate-in fade-in-0 slide-in-from-top-1"
+      )}
+      // Stagger liviano en "Agregar/Quitar todos": cada fila entra un poquito después que
+      // la anterior en vez de todas a la vez, así se lee como un movimiento en cascada en
+      // vez de un parpadeo. Tope en 12 para que una lista larga no tarde una eternidad en
+      // terminar de entrar.
+      style={{ animationDelay: `${Math.min(index, 12) * 25}ms` }}
+    >
       <button
         type="button"
         onClick={onToggle}
-        className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted"
+        disabled={exiting}
+        className={cn(
+          "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors duration-500 hover:bg-muted disabled:pointer-events-none",
+          justMoved && "bg-primary/10"
+        )}
       >
         <span className="shrink-0 text-muted-foreground">{icon}</span>
         <span className="min-w-0 flex-1">
@@ -80,6 +112,22 @@ export function TransferListAssignment({
   const [availableFilter, setAvailableFilter] = useState("")
   const [assignedFilter, setAssignedFilter] = useState("")
 
+  // Ids con la animación de salida en curso (ver animateThenCommit) — mientras están acá
+  // siguen perteneciendo lógicamente a su lista de origen (pendingIds todavía no cambió),
+  // solo se les pinta la clase de salida.
+  const [exitingAvailable, setExitingAvailable] = useState<Set<string>>(new Set())
+  const [exitingAssigned, setExitingAssigned] = useState<Set<string>>(new Set())
+  // Ids que acaban de terminar de moverse — solo para el resalte momentáneo (ver
+  // HIGHLIGHT_MS), no afecta a qué lista pertenecen.
+  const [justMovedIds, setJustMovedIds] = useState<Set<string>>(new Set())
+
+  // Evita que un setTimeout de una animación en curso termine escribiendo sobre el estado
+  // de OTRO dueño si el usuario alcanza a cambiar de rol/usuario antes de que termine (no
+  // debería poder pasar porque el selector se deshabilita con cambios pendientes, pero un
+  // "Descartar cambios" a mitad de animación sí es posible) — cada operación de animación
+  // guarda la generación vigente al arrancar y se aborta si ya cambió.
+  const generationRef = useRef(0)
+
   // Selecciona el primer dueño en cuanto llega la lista, si todavía no hay ninguno elegido.
   useEffect(() => {
     if (!ownerId && ownerOptions.length > 0) {
@@ -88,6 +136,11 @@ export function TransferListAssignment({
   }, [ownerId, ownerOptions])
 
   useEffect(() => {
+    generationRef.current += 1
+    setExitingAvailable(new Set())
+    setExitingAssigned(new Set())
+    setJustMovedIds(new Set())
+
     if (!ownerId) return
     let cancelled = false
     setAssignedLoading(true)
@@ -138,23 +191,70 @@ export function TransferListAssignment({
     [pendingIds, catalogById, assignedFilter]
   )
 
+  // Reproduce la salida de `ids` de su lista actual y, recién cuando termina, aplica
+  // `commit` (el cambio real a pendingIds) — así el ítem tiene tiempo de desvanecerse antes
+  // de desaparecer de golpe, y entra "fresco" (con su propia animación de entrada, gratis
+  // por ser un nodo nuevo) del otro lado. Se usa tanto para un solo ítem como para
+  // "Agregar/Quitar todos".
+  function animateThenCommit(ids: string[], exitingSetter: React.Dispatch<React.SetStateAction<Set<string>>>, commit: () => void) {
+    if (ids.length === 0) return
+    const generation = generationRef.current
+    exitingSetter((prev) => {
+      const next = new Set(prev)
+      ids.forEach((id) => next.add(id))
+      return next
+    })
+    window.setTimeout(() => {
+      if (generationRef.current !== generation) return
+      commit()
+      exitingSetter((prev) => {
+        const next = new Set(prev)
+        ids.forEach((id) => next.delete(id))
+        return next
+      })
+      setJustMovedIds((prev) => new Set([...prev, ...ids]))
+      window.setTimeout(() => {
+        if (generationRef.current !== generation) return
+        setJustMovedIds((prev) => {
+          const next = new Set(prev)
+          ids.forEach((id) => next.delete(id))
+          return next
+        })
+      }, HIGHLIGHT_MS)
+    }, EXIT_MS)
+  }
+
   function addItem(id: string) {
-    setPendingIds((prev) => new Set(prev).add(id))
+    animateThenCommit([id], setExitingAvailable, () => {
+      setPendingIds((prev) => new Set(prev).add(id))
+    })
   }
   function removeItem(id: string) {
-    setPendingIds((prev) => {
-      const next = new Set(prev)
-      next.delete(id)
-      return next
+    animateThenCommit([id], setExitingAssigned, () => {
+      setPendingIds((prev) => {
+        const next = new Set(prev)
+        next.delete(id)
+        return next
+      })
     })
   }
   function addAll() {
-    setPendingIds(new Set(catalogItems.map((item) => item.id)))
+    const ids = catalogItems.filter((item) => !pendingIds.has(item.id)).map((item) => item.id)
+    animateThenCommit(ids, setExitingAvailable, () => {
+      setPendingIds(new Set(catalogItems.map((item) => item.id)))
+    })
   }
   function removeAll() {
-    setPendingIds(new Set())
+    const ids = [...pendingIds]
+    animateThenCommit(ids, setExitingAssigned, () => {
+      setPendingIds(new Set())
+    })
   }
   function discardChanges() {
+    generationRef.current += 1
+    setExitingAvailable(new Set())
+    setExitingAssigned(new Set())
+    setJustMovedIds(new Set())
     setPendingIds(assignedIds)
   }
 
@@ -175,28 +275,43 @@ export function TransferListAssignment({
   }
 
   const selectedOwner = ownerOptions.find((option) => option.id === ownerId)
+  // Le da a <SelectValue> cómo mostrar el trigger sin abrir el popup: sin esto, Base UI no
+  // tiene de dónde sacar la etiqueta del valor ya seleccionado en el primer render (el
+  // Popup recién monta sus <SelectItem> al abrirse) y termina mostrando el id crudo.
+  const ownerItems = useMemo(
+    () =>
+      Object.fromEntries(
+        ownerOptions.map((option) => [option.id, option.sublabel ? `${option.label} — ${option.sublabel}` : option.label])
+      ),
+    [ownerOptions]
+  )
 
   return (
     <div className="flex flex-col gap-4">
       <Card className="p-4">
-        <label className="mb-1.5 block text-sm font-medium" htmlFor="transfer-owner-select">
+        <label className="mb-1.5 block text-sm font-medium" id="transfer-owner-label">
           {ownerLabel}
         </label>
-        <select
-          id="transfer-owner-select"
-          value={ownerId}
-          disabled={ownersLoading || isDirty}
-          onChange={(event) => setOwnerId(event.target.value)}
-          className="h-8 w-full max-w-sm rounded-lg border border-input bg-transparent px-2.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-50 dark:bg-input/30"
+        <Select
+          items={ownerItems}
+          value={ownerId || null}
+          onValueChange={(value) => setOwnerId((value as string | null) ?? "")}
+          disabled={ownersLoading || isDirty || ownerOptions.length === 0}
         >
-          {ownerOptions.length === 0 && <option value="">Sin opciones</option>}
-          {ownerOptions.map((option) => (
-            <option key={option.id} value={option.id}>
-              {option.label}
-              {option.sublabel ? ` — ${option.sublabel}` : ""}
-            </option>
-          ))}
-        </select>
+          <SelectTrigger aria-labelledby="transfer-owner-label" className="w-full max-w-sm">
+            <SelectValue
+              placeholder={ownerOptions.length === 0 ? "Sin opciones" : `Elegí un ${ownerLabel.toLowerCase()}`}
+            />
+          </SelectTrigger>
+          <SelectContent>
+            {ownerOptions.map((option) => (
+              <SelectItem key={option.id} value={option.id}>
+                {option.label}
+                {option.sublabel && <span className="text-muted-foreground">{option.sublabel}</span>}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
         {isDirty && (
           <p className="mt-1.5 text-xs text-amber-600 dark:text-amber-400">
             Guardá o descartá los cambios antes de elegir {ownerLabel === "Rol" ? "otro rol" : "otro usuario"}.
@@ -217,8 +332,16 @@ export function TransferListAssignment({
             loading={catalogLoading || assignedLoading}
             emptyLabel={`No hay ${itemLabel.toLowerCase()} disponibles.`}
           >
-            {available.map((item) => (
-              <ItemRow key={item.id} item={item} onToggle={() => addItem(item.id)} icon={<PlusIcon className="size-4" />} />
+            {available.map((item, index) => (
+              <ItemRow
+                key={item.id}
+                item={item}
+                onToggle={() => addItem(item.id)}
+                icon={<PlusIcon className="size-4" />}
+                exiting={exitingAvailable.has(item.id)}
+                justMoved={justMovedIds.has(item.id)}
+                index={index}
+              />
             ))}
           </ItemList>
         </Card>
@@ -236,8 +359,16 @@ export function TransferListAssignment({
           </div>
           <SearchBox value={assignedFilter} onChange={setAssignedFilter} />
           <ItemList loading={catalogLoading || assignedLoading} emptyLabel={`Este ${ownerLabel.toLowerCase()} no tiene ${itemLabel.toLowerCase()} asignados.`}>
-            {assigned.map((item) => (
-              <ItemRow key={item.id} item={item} onToggle={() => removeItem(item.id)} icon={<MinusIcon className="size-4" />} />
+            {assigned.map((item, index) => (
+              <ItemRow
+                key={item.id}
+                item={item}
+                onToggle={() => removeItem(item.id)}
+                icon={<MinusIcon className="size-4" />}
+                exiting={exitingAssigned.has(item.id)}
+                justMoved={justMovedIds.has(item.id)}
+                index={index}
+              />
             ))}
           </ItemList>
         </Card>
