@@ -140,6 +140,26 @@
   }
 }
 
+/* La "cajita" que viaja de una lista a la otra en TransferListAssignment (ver
+   FlyingChip) — --fly-dx/--fly-dy son la distancia real en píxeles entre la fila de
+   origen y la lista de destino, calculada en JS a partir de getBoundingClientRect().
+   El 50% se desvía por encima de la línea recta (translateY extra) para que el
+   recorrido se sienta como un arco, no una línea derecha. */
+@keyframes fly-item {
+  0% {
+    transform: translate(-50%, -50%) translate(0, 0) scale(1);
+    opacity: 1;
+  }
+  45% {
+    transform: translate(-50%, -50%) translate(calc(var(--fly-dx) * 0.5), calc(var(--fly-dy) * 0.5 - 28px)) scale(0.9);
+    opacity: 1;
+  }
+  100% {
+    transform: translate(-50%, -50%) translate(var(--fly-dx), var(--fly-dy)) scale(0.6);
+    opacity: 0;
+  }
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;
