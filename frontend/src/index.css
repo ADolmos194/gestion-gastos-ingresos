@@ -126,6 +126,20 @@
   }
 }
 
+/* Flechita "en tránsito" entre las dos listas de TransferListAssignment mientras se
+   mueve un ítem — ver TransferArrow en transfer-list-assignment.tsx. */
+@keyframes chase-arrow {
+  0%,
+  100% {
+    opacity: 0.25;
+    transform: translateX(0);
+  }
+  50% {
+    opacity: 1;
+    transform: translateX(4px);
+  }
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;

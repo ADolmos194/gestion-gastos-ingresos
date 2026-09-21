@@ -4,9 +4,12 @@ import { ChevronRightIcon, LoaderCircleIcon, MinusIcon, PlusIcon, SearchIcon } f
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Separator } from "@/components/ui/separator"
 import { toastError, toastSuccess } from "@/lib/toast"
 import { cn } from "@/lib/utils"
+
+type TransferDirection = "add" | "remove"
 
 export interface TransferListOwnerOption {
   id: string
@@ -41,6 +44,10 @@ const EXIT_MS = 150
 // lista, después de terminar su animación de entrada — puramente cosmético, para que la
 // mirada encuentre fácil "che, esto es lo que acabo de mover".
 const HIGHLIGHT_MS = 650
+// Cuánto se ve la flechita "en tránsito" entre las dos listas (ver TransferArrow) — un
+// poco más que EXIT_MS a propósito: si durara lo mismo que el fade de la fila, se corta
+// justo cuando más se nota. No depende de cuánto tarde el commit real.
+const ARROW_MS = 550
 
 function ItemRow({
   item,
@@ -90,6 +97,36 @@ function ItemRow({
   )
 }
 
+// Separador entre las dos columnas: en reposo es solo un chevron gris fijo, pero mientras
+// hay un traspaso en curso (ver ARROW_MS) se convierte en tres chevrons "persiguiéndose"
+// en el color primario — la idea es que se lea como "esto está viajando hacia la otra
+// lista" (no un spinner genérico, sino uno con dirección), tanto al agregar como al quitar.
+function TransferArrow({ direction }: { direction: TransferDirection | null }) {
+  if (!direction) {
+    return (
+      <div className="hidden items-center justify-center text-muted-foreground md:flex">
+        <ChevronRightIcon className="size-5" />
+      </div>
+    )
+  }
+  return (
+    <div
+      className={cn("hidden items-center justify-center text-primary md:flex", direction === "remove" && "-scale-x-100")}
+      aria-hidden="true"
+    >
+      <span className="flex items-center -space-x-2.5">
+        {[0, 1, 2].map((step) => (
+          <ChevronRightIcon
+            key={step}
+            className="size-4 animate-[chase-arrow_0.9s_ease-in-out_infinite]"
+            style={{ animationDelay: `${step * 150}ms` }}
+          />
+        ))}
+      </span>
+    </div>
+  )
+}
+
 // Pantalla genérica de "dos listas": se elige un dueño (rol o usuario) a la izquierda del
 // header, y se mueven ítems entre "Disponibles" y "Asignados" — usada por PermisosPage
 // (rol -> permisos), MenusPage (rol -> menús) y UsuariosPage (usuario -> roles), así los
@@ -120,6 +157,9 @@ export function TransferListAssignment({
   // Ids que acaban de terminar de moverse — solo para el resalte momentáneo (ver
   // HIGHLIGHT_MS), no afecta a qué lista pertenecen.
   const [justMovedIds, setJustMovedIds] = useState<Set<string>>(new Set())
+  // Qué traspaso está en curso ahora mismo (o null si no hay ninguno) — solo maneja el
+  // ícono central de TransferArrow, independiente de exitingAvailable/exitingAssigned.
+  const [transferDirection, setTransferDirection] = useState<TransferDirection | null>(null)
 
   // Evita que un setTimeout de una animación en curso termine escribiendo sobre el estado
   // de OTRO dueño si el usuario alcanza a cambiar de rol/usuario antes de que termine (no
@@ -140,6 +180,7 @@ export function TransferListAssignment({
     setExitingAvailable(new Set())
     setExitingAssigned(new Set())
     setJustMovedIds(new Set())
+    setTransferDirection(null)
 
     if (!ownerId) return
     let cancelled = false
@@ -195,8 +236,14 @@ export function TransferListAssignment({
   // `commit` (el cambio real a pendingIds) — así el ítem tiene tiempo de desvanecerse antes
   // de desaparecer de golpe, y entra "fresco" (con su propia animación de entrada, gratis
   // por ser un nodo nuevo) del otro lado. Se usa tanto para un solo ítem como para
-  // "Agregar/Quitar todos".
-  function animateThenCommit(ids: string[], exitingSetter: React.Dispatch<React.SetStateAction<Set<string>>>, commit: () => void) {
+  // "Agregar/Quitar todos". `direction` solo prende la flecha central (ver TransferArrow),
+  // por eso se apaga con su propio timeout (ARROW_MS) en vez de compartir el de justMovedIds.
+  function animateThenCommit(
+    ids: string[],
+    direction: TransferDirection,
+    exitingSetter: React.Dispatch<React.SetStateAction<Set<string>>>,
+    commit: () => void
+  ) {
     if (ids.length === 0) return
     const generation = generationRef.current
     exitingSetter((prev) => {
@@ -204,6 +251,11 @@ export function TransferListAssignment({
       ids.forEach((id) => next.add(id))
       return next
     })
+    setTransferDirection(direction)
+    window.setTimeout(() => {
+      if (generationRef.current !== generation) return
+      setTransferDirection(null)
+    }, ARROW_MS)
     window.setTimeout(() => {
       if (generationRef.current !== generation) return
       commit()
@@ -225,12 +277,12 @@ export function TransferListAssignment({
   }
 
   function addItem(id: string) {
-    animateThenCommit([id], setExitingAvailable, () => {
+    animateThenCommit([id], "add", setExitingAvailable, () => {
       setPendingIds((prev) => new Set(prev).add(id))
     })
   }
   function removeItem(id: string) {
-    animateThenCommit([id], setExitingAssigned, () => {
+    animateThenCommit([id], "remove", setExitingAssigned, () => {
       setPendingIds((prev) => {
         const next = new Set(prev)
         next.delete(id)
@@ -240,13 +292,13 @@ export function TransferListAssignment({
   }
   function addAll() {
     const ids = catalogItems.filter((item) => !pendingIds.has(item.id)).map((item) => item.id)
-    animateThenCommit(ids, setExitingAvailable, () => {
+    animateThenCommit(ids, "add", setExitingAvailable, () => {
       setPendingIds(new Set(catalogItems.map((item) => item.id)))
     })
   }
   function removeAll() {
     const ids = [...pendingIds]
-    animateThenCommit(ids, setExitingAssigned, () => {
+    animateThenCommit(ids, "remove", setExitingAssigned, () => {
       setPendingIds(new Set())
     })
   }
@@ -255,6 +307,7 @@ export function TransferListAssignment({
     setExitingAvailable(new Set())
     setExitingAssigned(new Set())
     setJustMovedIds(new Set())
+    setTransferDirection(null)
     setPendingIds(assignedIds)
   }
 
@@ -287,8 +340,8 @@ export function TransferListAssignment({
   )
 
   return (
-    <div className="flex flex-col gap-4">
-      <Card className="p-4">
+    <Card className="flex flex-col gap-4 p-4">
+      <div>
         <label className="mb-1.5 block text-sm font-medium" id="transfer-owner-label">
           {ownerLabel}
         </label>
@@ -304,12 +357,15 @@ export function TransferListAssignment({
             />
           </SelectTrigger>
           <SelectContent>
-            {ownerOptions.map((option) => (
-              <SelectItem key={option.id} value={option.id}>
-                {option.label}
-                {option.sublabel && <span className="text-muted-foreground">{option.sublabel}</span>}
-              </SelectItem>
-            ))}
+            <SelectGroup>
+              <SelectLabel>{ownerLabel === "Rol" ? "Roles" : "Usuarios"}</SelectLabel>
+              {ownerOptions.map((option) => (
+                <SelectItem key={option.id} value={option.id}>
+                  {option.label}
+                  {option.sublabel && <span className="text-muted-foreground">{option.sublabel}</span>}
+                </SelectItem>
+              ))}
+            </SelectGroup>
           </SelectContent>
         </Select>
         {isDirty && (
@@ -317,10 +373,15 @@ export function TransferListAssignment({
             Guardá o descartá los cambios antes de elegir {ownerLabel === "Rol" ? "otro rol" : "otro usuario"}.
           </p>
         )}
-      </Card>
+        {selectedOwner === undefined && !ownersLoading && ownerOptions.length === 0 && (
+          <p className="mt-1.5 text-sm text-muted-foreground">No hay {ownerLabel === "Rol" ? "roles" : "usuarios"} para elegir.</p>
+        )}
+      </div>
+
+      <Separator />
 
       <div className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_auto_1fr] md:items-stretch">
-        <Card className="flex min-h-72 flex-col p-3">
+        <div className="flex min-h-72 flex-col">
           <div className="mb-2 flex items-center justify-between gap-2">
             <h3 className="text-sm font-semibold">{itemLabel} disponibles</h3>
             <Button type="button" variant="ghost" size="sm" disabled={available.length === 0} onClick={addAll}>
@@ -344,13 +405,11 @@ export function TransferListAssignment({
               />
             ))}
           </ItemList>
-        </Card>
-
-        <div className="hidden items-center justify-center text-muted-foreground md:flex">
-          <ChevronRightIcon className="size-5" />
         </div>
 
-        <Card className="flex min-h-72 flex-col p-3">
+        <TransferArrow direction={transferDirection} />
+
+        <div className="flex min-h-72 flex-col border-t pt-3 md:border-t-0 md:pt-0">
           <div className="mb-2 flex items-center justify-between gap-2">
             <h3 className="text-sm font-semibold">{itemLabel} asignados</h3>
             <Button type="button" variant="ghost" size="sm" disabled={pendingIds.size === 0} onClick={removeAll}>
@@ -371,8 +430,10 @@ export function TransferListAssignment({
               />
             ))}
           </ItemList>
-        </Card>
+        </div>
       </div>
+
+      <Separator />
 
       <div className="flex items-center justify-end gap-2">
         {isDirty && (
@@ -385,10 +446,7 @@ export function TransferListAssignment({
           Guardar cambios
         </Button>
       </div>
-      {selectedOwner === undefined && !ownersLoading && ownerOptions.length === 0 && (
-        <p className="text-sm text-muted-foreground">No hay {ownerLabel === "Rol" ? "roles" : "usuarios"} para elegir.</p>
-      )}
-    </div>
+    </Card>
   )
 }
 
