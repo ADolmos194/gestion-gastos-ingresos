@@ -1,6 +1,14 @@
 {
   "sec_permissions": [
     {
+      "id": "4a2cf5d3-3520-4d7f-8130-236264b9f977",
+      "decorator_name": "seguridad-manage",
+      "api_url": "/api/seguridad/roles/",
+      "module_name": "seguridad",
+      "key_action_id": "61b6461f-d989-400d-8f8d-367c2382b187",
+      "key_status_id": "e6c00f21-8e37-4c26-9f52-a3db842809da"
+    },
+    {
       "id": "a78d6806-23e4-4d9e-8895-04908d22079e",
       "decorator_name": "configuracion-categorias-read",
       "api_url": "/api/configuraciones/categorias/",

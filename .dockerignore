@@ -8,7 +8,15 @@
 frontend/node_modules
 frontend/dist
 frontend/dist-ssr
-frontend/.env
+# A diferencia de backend/.env (credenciales reales: DB, SECRET_KEY), frontend/.env NO
+# tiene secretos — son puros valores públicos (VITE_STATUS_*, VITE_URL_BASE, etc.) que
+# Vite necesita EN BUILD TIME para inlinearlos en el bundle (ver nginx/Dockerfile: "Vite
+# inlinea las VITE_* en el bundle EN BUILD TIME"). Excluirlo del contexto de build hacía
+# que el nginx Dockerfile compilara con esos VITE_STATUS_* en `undefined`: el filtro por
+# defecto "Activos" de CrudGrid compara row.statusId === ACTIVE_STATUS_ID (ver
+# crud-grid.tsx), así que TODA grilla del sistema mostraba 0 filas en el build servido por
+# nginx (el que de verdad se despliega) aunque el backend devolviera datos — solo pasaba
+# desapercibido corriendo `pnpm dev` (que sí lee frontend/.env del disco directo).
 frontend/.env.local
 
 backend/.env

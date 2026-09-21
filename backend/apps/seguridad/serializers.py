@@ -35,8 +35,22 @@ class MenuSerializer(serializers.ModelSerializer):
     frontend/src/lib/page-routes.tsx) para ese router_to."""
 
     status = serializers.CharField(source="key_status.name", read_only=True)
+    # "Configuraciones > Maestras > Categorías" en vez de solo "Categorías" — para que el
+    # listado de asignación (ver views.list_menus) no muestre nombres de hoja ambiguos
+    # (varios padres tienen un hijo "Maestras", por ejemplo).
+    full_title = serializers.SerializerMethodField()
 
     class Meta:
         model = Menu
-        fields = ["id", "subject", "title", "icon", "router_to", "ordering", "key_father_menu", "status"]
+        fields = ["id", "subject", "title", "icon", "router_to", "ordering", "key_father_menu", "status", "full_title"]
         read_only_fields = fields
+
+    def get_full_title(self, menu: Menu) -> str:
+        titles = []
+        current = menu
+        seen_ids = set()
+        while current is not None and current.id not in seen_ids:
+            titles.append(current.title or current.subject)
+            seen_ids.add(current.id)
+            current = current.key_father_menu
+        return " > ".join(reversed(titles))

@@ -1,6 +1,12 @@
 {
   "sec_actions": [
     {
+      "id": "61b6461f-d989-400d-8f8d-367c2382b187",
+      "name": "manage",
+      "description": null,
+      "key_status_id": "e6c00f21-8e37-4c26-9f52-a3db842809da"
+    },
+    {
       "id": "04b71593-d02c-48b5-906c-93939e64dde4",
       "name": "read",
       "description": null,
