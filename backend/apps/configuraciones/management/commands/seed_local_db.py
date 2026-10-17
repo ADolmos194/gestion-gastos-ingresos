@@ -6,7 +6,7 @@ from apps.configuraciones.management.seed_local_db.service import SeedLocalDbSer
 
 
 class Command(BaseCommand):
-    help = "Carga los datos de referencia locales para Gastos e Ingresos desde archivos JSON."
+    help = "Carga los datos de referencia locales para Qullqi desde archivos JSON."
 
     def add_arguments(self, parser):
         available_seed_names = get_available_seed_config_names()

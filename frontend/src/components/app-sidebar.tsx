@@ -13,7 +13,7 @@ import { iconFromKey } from "@/lib/menu-icons"
 import { toRoutePath } from "@/lib/menu-routes"
 
 const team = {
-  name: "Gastos e Ingresos",
+  name: "Qullqi",
   logo: <GalleryVerticalEndIcon />,
   plan: "Personal",
 }

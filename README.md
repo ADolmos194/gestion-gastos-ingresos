@@ -1,4 +1,4 @@
-# Gestión de Gastos e Ingresos
+# Qullqi
 
 Aplicación web full-stack para el control de gastos e ingresos personales, con autenticación segura, control de acceso basado en roles (RBAC), auditoría completa de cambios, importación masiva de datos desde Excel, y una infraestructura pensada para producción (Docker, nginx, workers en segundo plano, CI/CD).
 

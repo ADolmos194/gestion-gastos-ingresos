@@ -14,7 +14,7 @@ _TEMPLATE_HTML = "autenticacion/emails/code_email.html"
 _TEMPLATE_TEXT = "autenticacion/emails/code_email.txt"
 
 
-def _issue_and_send(user, purpose, subject, heading, intro, footer_note):
+def _issue_and_send(user, purpose, subject, heading, intro, footer_note, to_email=None):
     # Protege contra spam de correo desde CUALQUIER punto de entrada que dispare un envío
     # (registro, reenvío explícito, auto-reenvío al intentar loguearse sin verificar) — el
     # cooldown vive acá, no en el throttle por IP de cada vista, que no cubre este cruce.
@@ -33,11 +33,11 @@ def _issue_and_send(user, purpose, subject, heading, intro, footer_note):
         subject=subject,
         body=render_to_string(_TEMPLATE_TEXT, context),
         from_email=settings.DEFAULT_FROM_EMAIL,
-        to=[user.email],
+        to=[to_email or user.email],
     )
     email.attach_alternative(render_to_string(_TEMPLATE_HTML, context), "text/html")
     email.send(fail_silently=True)
-    logger.info("Código de %s enviado a %s", purpose, user.email)
+    logger.info("Código de %s enviado a %s", purpose, to_email or user.email)
 
 
 def send_verification_code(user):
@@ -46,7 +46,7 @@ def send_verification_code(user):
         VerificationCode.Purpose.EMAIL_VERIFICATION,
         subject="Verifica tu cuenta",
         heading=f"Hola {user.first_name or user.username},",
-        intro="Usa este código para verificar tu cuenta de Gastos e Ingresos.",
+        intro="Usa este código para verificar tu cuenta de Qullqi.",
         footer_note="Si no creaste esta cuenta, podés ignorar este mensaje.",
     )
 
@@ -59,6 +59,21 @@ def send_password_reset_code(user):
         heading=f"Hola {user.first_name or user.username},",
         intro="Usa este código para restablecer la contraseña de tu cuenta.",
         footer_note="Si no solicitaste esto, podés ignorar este mensaje.",
+    )
+
+
+def send_change_email_code(user, new_email):
+    _issue_and_send(
+        user,
+        VerificationCode.Purpose.CHANGE_EMAIL,
+        subject="Confirma tu nuevo correo",
+        heading=f"Hola {user.first_name or user.username},",
+        intro=(
+            "Usa este código para confirmar el cambio de correo de tu cuenta. "
+            "Si no solicitaste este cambio, entrá a tu cuenta y revisá la actividad."
+        ),
+        footer_note="Este código vence en unos minutos y se usa una sola vez.",
+        to_email=new_email,
     )
 
 

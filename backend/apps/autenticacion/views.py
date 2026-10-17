@@ -1,11 +1,15 @@
+import hashlib
 import logging
 
+from django.conf import settings
 from django.contrib.auth import authenticate
 from django.contrib.auth import login as django_login
 from django.contrib.auth import logout as django_logout
 from django.contrib.auth import update_session_auth_hash
+from django.contrib.sessions.models import Session
 from django.db.models import Q
 from django.middleware.csrf import rotate_token
+from django.utils import timezone
 from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import ensure_csrf_cookie
 from rest_framework import status
@@ -16,16 +20,26 @@ from rest_framework.views import APIView
 
 from .models import User, VerificationCode
 from .serializers import (
+    ChangeEmailSerializer,
     ChangePasswordSerializer,
     ForgotPasswordSerializer,
+    LoginOtpSerializer,
     LoginSerializer,
     RegisterSerializer,
     ResendVerificationSerializer,
     ResetPasswordConfirmSerializer,
+    SessionsRevokeSerializer,
+    TotpCodeSerializer,
     UserSerializer,
     VerifyEmailSerializer,
 )
-from .services import build_session_payload, send_password_reset_code, send_verification_code
+from .services import (
+    build_session_payload,
+    send_change_email_code,
+    send_password_reset_code,
+    send_verification_code,
+)
+from . import two_factor
 
 logger = logging.getLogger(__name__)
 
@@ -121,10 +135,82 @@ class LoginView(APIView):
             logger.info("Login bloqueado por falta de permisos: %s", authenticated_user.username)
             return Response(_NO_PERMISSIONS, status=status.HTTP_403_FORBIDDEN)
 
+        # 2FA activo => se pausa el login: todavía NO hay sesión autenticada (solo queda el
+        # id del usuario pendiente en la sesión ANÓNIMA con expiración corta). El frontend
+        # muestra el segundo paso (código TOTP/respaldo) y llama a /api/auth/login/2fa/.
+        if authenticated_user.otp_enabled:
+            request.session["pending_otp_user_id"] = str(authenticated_user.id)
+            request.session["pending_otp_expires_at"] = timezone.now().timestamp() + settings.TWO_FA_LOGIN_TTL_SECONDS
+            logger.info("Login pausado por 2FA: %s", authenticated_user.username)
+            return Response(
+                {
+                    "detail": "Ingresá el código de 6 dígitos de tu app de autenticación.",
+                    "reason": "otp_required",
+                },
+                status=status.HTTP_202_ACCEPTED,
+            )
+
         # Rota la session key (previene fijación de sesión) y dispara user_logged_in,
         # que ya resetea failed_login_attempts (ver apps/autenticacion/signals.py).
         django_login(request, authenticated_user)
 
+        return Response(payload, status=status.HTTP_200_OK)
+
+
+class LoginOtpView(APIView):
+    """Segundo paso del login cuando la cuenta tiene 2FA: valida el código TOTP (o un
+    código de respaldo) del usuario que quedó pendiente en la sesión anónima y recién ahí
+    crea la sesión autenticada.
+
+    La sesión anónima actúa de "challenge" con expiración corta (TWO_FA_LOGIN_TTL_SECONDS):
+    si expira o el usuario no lleva el flujo a término, LoginView se pide de nuevo.
+    """
+
+    authentication_classes = []
+    permission_classes = [AllowAny]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "2fa"
+
+    def post(self, request):
+        pending_user_id = request.session.get("pending_otp_user_id")
+        expires_at = request.session.get("pending_otp_expires_at")
+        if not pending_user_id or not expires_at or timezone.now().timestamp() > expires_at:
+            request.session.pop("pending_otp_user_id", None)
+            request.session.pop("pending_otp_expires_at", None)
+            logger.info("Login 2FA rechazado: challenge expirado")
+            return Response(
+                {"detail": "El tiempo para ingresar el código expiró. Volvé a iniciar sesión."},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+
+        user = User.objects.filter(id=pending_user_id).first()
+        if user is None:
+            request.session.pop("pending_otp_user_id", None)
+            request.session.pop("pending_otp_expires_at", None)
+            return Response(_INVALID_CREDENTIALS, status=status.HTTP_401_UNAUTHORIZED)
+
+        serializer = LoginOtpSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        code = serializer.validated_data["code"]
+
+        # TOTP primero; si falla, códigos de respaldo (que se consumen en un solo uso).
+        is_valid = two_factor.verify_totp(user, code)
+        if not is_valid:
+            is_valid = two_factor.verify_recovery_code(user, code)
+        if not is_valid:
+            logger.warning("Login 2FA rechazado: código inválido (%s)", user.username)
+            return Response({"detail": "El código es inválido."}, status=status.HTTP_400_BAD_REQUEST)
+
+        request.session.pop("pending_otp_user_id", None)
+        request.session.pop("pending_otp_expires_at", None)
+
+        payload, has_access = build_session_payload(user)
+        if not has_access:
+            logger.info("Login 2FA bloqueado por falta de permisos: %s", user.username)
+            return Response(_NO_PERMISSIONS, status=status.HTTP_403_FORBIDDEN)
+
+        django_login(request, user)
+        logger.info("Login 2FA completado: %s", user.username)
         return Response(payload, status=status.HTTP_200_OK)
 
 
@@ -137,6 +223,13 @@ class RegisterView(APIView):
     throttle_scope = "register"
 
     def post(self, request):
+        # Registro cerrado por default (ALLOW_REGISTRATION en settings.py): la cuenta sigue
+        # siendo personal, sin invitaciones el endpoint no es una puerta abierta más.
+        if not settings.ALLOW_REGISTRATION:
+            return Response(
+                {"detail": "El registro de cuentas está deshabilitado. Pedí acceso a un administrador."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
         serializer = RegisterSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         user = serializer.save()
@@ -316,3 +409,232 @@ class MeView(APIView):
     def get(self, request):
         payload, _has_access = build_session_payload(request.user)
         return Response(payload)
+
+
+class TwoFactorStatusView(APIView):
+    """Estado del 2FA de la cuenta (el setup/confirm llega por login+contraseña)."""
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        return Response({"enabled": request.user.otp_enabled})
+
+
+class TwoFactorSetupView(APIView):
+    """Genera un secreto TOTP nuevo y lo guarda (aún deshabilitado). El frontend muestra el
+    otpauth URI/QR para que la app de autenticación lo escanee; recién cuando el usuario
+    confirma con un código real (TwoFactorConfirmView) el 2FA queda activo."""
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        if request.user.otp_enabled:
+            return Response({"detail": "El 2FA ya está activado."}, status=status.HTTP_400_BAD_REQUEST)
+        request.user.otp_secret = two_factor.generate_secret()
+        request.user.save(update_fields=["otp_secret"])
+        logger.info("Setup 2FA iniciado: %s", request.user.username)
+        return Response(
+            {
+                "secret": request.user.otp_secret,
+                "otpauth_url": two_factor.otpauth_uri(request.user),
+            }
+        )
+
+
+class TwoFactorConfirmView(APIView):
+    """Activa el 2FA validando con un código TOTP el secreto pendiente del setup, y genera
+    los códigos de respaldo (que se muestran por única vez en esta respuesta)."""
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        if request.user.otp_enabled:
+            return Response({"detail": "El 2FA ya está activado."}, status=status.HTTP_400_BAD_REQUEST)
+        serializer = TotpCodeSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        if not two_factor.verify_totp(request.user, serializer.validated_data["code"]):
+            return Response({"detail": "El código es inválido."}, status=status.HTTP_400_BAD_REQUEST)
+
+        recovery_codes = two_factor.generate_recovery_codes()
+        request.user.otp_enabled = True
+        request.user.otp_recovery_codes = two_factor.hash_recovery_codes(recovery_codes)
+        request.user.save(update_fields=["otp_enabled", "otp_recovery_codes"])
+        logger.info("2FA ACTIVADO: %s", request.user.username)
+        return Response(
+            {
+                "detail": "2FA activado. Guardá tus códigos de respaldo en un lugar seguro.",
+                "recovery_codes": recovery_codes,
+            }
+        )
+
+
+class TwoFactorDisableView(APIView):
+    """Desactiva el 2FA. Requiere un TOTP válido (alguien con la sesión robada no puede
+    apagar la protección sin el código)."""
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        if not request.user.otp_enabled:
+            return Response({"detail": "El 2FA no está activado."}, status=status.HTTP_400_BAD_REQUEST)
+        serializer = TotpCodeSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        if not two_factor.verify_totp(request.user, serializer.validated_data["code"]):
+            return Response({"detail": "El código es inválido."}, status=status.HTTP_400_BAD_REQUEST)
+
+        two_factor.clear_2fa(request.user)
+        logger.warning("2FA DESACTIVADO: %s", request.user.username)
+        return Response({"detail": "2FA desactivado correctamente."})
+
+
+class TwoFactorRecoveryRegenerateView(APIView):
+    """Regenera los códigos de respaldo (invalida los anteriores). Requiere TOTP válido —
+    protegido igual que el disable: nada de regenerar códigos con la sesión robada a secas."""
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        if not request.user.otp_enabled:
+            return Response({"detail": "El 2FA no está activado."}, status=status.HTTP_400_BAD_REQUEST)
+        serializer = TotpCodeSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        if not two_factor.verify_totp(request.user, serializer.validated_data["code"]):
+            return Response({"detail": "El código es inválido."}, status=status.HTTP_400_BAD_REQUEST)
+
+        recovery_codes = two_factor.generate_recovery_codes()
+        request.user.otp_recovery_codes = two_factor.hash_recovery_codes(recovery_codes)
+        request.user.save(update_fields=["otp_recovery_codes"])
+        logger.info("Códigos de respaldo regenerados: %s", request.user.username)
+        return Response({"recovery_codes": recovery_codes})
+
+
+class ChangeEmailRequestView(APIView):
+    """Inicia el cambio de correo: valida que el nuevo no esté en uso y envía a la NUEVA
+    dirección un código OTP. La cuenta sigue con el email actual hasta confirmar."""
+
+    permission_classes = [IsAuthenticated]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "change_email"
+
+    def post(self, request):
+        serializer = ChangeEmailSerializer(data=request.data, context={"user": request.user})
+        serializer.is_valid(raise_exception=True)
+        new_email = serializer.validated_data["new_email"]
+        send_change_email_code(request.user, new_email)
+        return Response(
+            {"detail": "Te enviamos un código de confirmación al nuevo correo."},
+            status=status.HTTP_200_OK,
+        )
+
+
+class ChangeEmailConfirmView(APIView):
+    """Confirma el cambio con el código enviado a la nueva dirección y actualiza el email."""
+
+    permission_classes = [IsAuthenticated]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "change_email"
+
+    def post(self, request):
+        serializer = ChangeEmailSerializer(data=request.data, context={"user": request.user})
+        serializer.is_valid(raise_exception=True)
+        new_email = serializer.validated_data["new_email"]
+        code = request.data.get("code", "")
+
+        if not VerificationCode.verify(
+            request.user, VerificationCode.Purpose.CHANGE_EMAIL, code
+        ):
+            return Response({"detail": _INVALID_CODE["detail"]}, status=status.HTTP_400_BAD_REQUEST)
+
+        request.user.email = new_email
+        request.user.email_verified = True
+        request.user.save(update_fields=["email", "email_verified"])
+        logger.info("Email cambiado a %s: %s", new_email, request.user.username)
+        return Response({"detail": "Correo actualizado correctamente.", "email": new_email})
+
+
+def _session_id(session_key: str) -> str:
+    """Identificador corto y estable de una sesión para exponerlo en el API: es un prefijo
+    del sha256 de la key real (que nunca se expone ni se loguea)."""
+    return hashlib.sha256(session_key.encode("utf-8")).hexdigest()[:16]
+
+
+class ActiveSessionsView(APIView):
+    """Lista las sesiones activas del usuario autenticado (otras pestañas/dispositivos),
+    con metadatos de dispositivo registrados por SessionMetaMiddleware. La actual viene
+    marcada current=True para que el frontend no se la permita revocar."""
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        user_id = str(request.user.id)
+        current_key = request.session.session_key
+        sessions = []
+        for db_session in Session.objects.all().iterator():
+            data = db_session.get_decoded()
+            if str(data.get("_auth_user_id", "")) != user_id:
+                continue
+            device = data.get("device_info") or {}
+            sessions.append(
+                {
+                    "id": _session_id(db_session.session_key),
+                    "current": db_session.session_key == current_key,
+                    "ip": device.get("ip", ""),
+                    "user_agent": device.get("user_agent", ""),
+                    "last_seen": device.get("last_seen"),
+                    "expires_at": db_session.expire_date.isoformat() if db_session.expire_date else None,
+                }
+            )
+        sessions.sort(key=lambda s: (s["current"] is False, s.get("last_seen") or ""), reverse=True)
+        return Response({"sessions": sessions})
+
+
+class RevokeSessionView(APIView):
+    """Cierra una sesión puntual del usuario (por id, ver _session_id). Nunca la actual."""
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        serializer = SessionsRevokeSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        target_id = serializer.validated_data["id"]
+        user_id = str(request.user.id)
+        current_key = request.session.session_key
+
+        for db_session in Session.objects.all().iterator():
+            data = db_session.get_decoded()
+            if str(data.get("_auth_user_id", "")) != user_id:
+                continue
+            if _session_id(db_session.session_key) != target_id:
+                continue
+            if db_session.session_key == current_key:
+                return Response(
+                    {"detail": "No podés revocar la sesión actual desde sí misma."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            db_session.delete()
+            logger.info("Sesión revocada: %s", request.user.username)
+            return Response({"detail": "Sesión cerrada."})
+
+        return Response({"detail": "No se encontró esa sesión."}, status=status.HTTP_404_NOT_FOUND)
+
+
+class LogoutAllSessionsView(APIView):
+    """Cierra la sesión en TODOS los dispositivos, salvo en el actual (el frontend puede
+    luego hacer logout() también para desloguearse por completo)."""
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        user_id = str(request.user.id)
+        current_key = request.session.session_key
+        revoked = 0
+        for db_session in Session.objects.all().iterator():
+            data = db_session.get_decoded()
+            if str(data.get("_auth_user_id", "")) != user_id:
+                continue
+            if db_session.session_key == current_key:
+                continue
+            db_session.delete()
+            revoked += 1
+        logger.warning("Logout en todos los dispositivos (%s sesiones): %s", revoked, request.user.username)
+        return Response({"detail": f"Sesiones cerradas en {revoked} dispositivo(s)."})

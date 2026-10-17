@@ -1,0 +1,4 @@
+# SPA de React Router: cualquier ruta que no matchee un archivo real del build cae a
+# index.html para que el router del lado del cliente la resuelva (equivalente al
+# "try_files $uri $uri/ /index.html;" de nginx/locations.conf, pero para Render Static Site).
+/*    /index.html   200

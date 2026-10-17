@@ -1,4 +1,4 @@
-# Documentación del proyecto — Gestión de Gastos e Ingresos
+# Documentación del proyecto — Qullqi
 
 > Análisis completo del estado actual del código (backend, frontend e infraestructura), organizado paso a paso. Complementa a `README.md` (que es la guía rápida de instalación) con el detalle de **cómo está construido** cada módulo y **por qué**.
 

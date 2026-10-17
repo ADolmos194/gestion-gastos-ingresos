@@ -33,3 +33,6 @@ frontend/dist-ssr/
 
 # Notas locales con credenciales de prueba, nunca se suben al repo
 CREDENCIALES.local.md
+
+# Backups de la base de datos (aunque van cifrados con AES-256, nunca al repo)
+backups/

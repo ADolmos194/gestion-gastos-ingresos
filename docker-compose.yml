@@ -1,16 +1,20 @@
-# Nombre de proyecto DISTINTO al de backend/compose.dev.yml (que usa "gastos_ingresos") a
-# propósito: Compose namespacea contenedores/red/volúmenes por nombre de proyecto + nombre
-# de recurso. La primera versión de este archivo usaba el MISMO nombre de proyecto y el
-# mismo volumen "gastos_ingresos_postgres_data" que compose.dev.yml — el resultado real
-# (probado): este stack terminó montando el volumen de Postgres del entorno de desarrollo
-# de verdad (con datos reales) en vez de uno propio. Nombre de proyecto y de recursos acá
-# quedan sin nada en común con compose.dev.yml para que eso no pueda volver a pasar.
-name: gastos_ingresos_stack
+# Nombre de proyecto DISTINTO al de backend/compose.dev.yml (que sigue usando
+# "gastos_ingresos") a propósito: Compose namespacea contenedores/red/volúmenes por nombre
+# de proyecto + nombre de recurso. La primera versión de este archivo usaba el MISMO nombre
+# de proyecto y el mismo volumen "gastos_ingresos_postgres_data" que compose.dev.yml — el
+# resultado real (probado): este stack terminó montando el volumen de Postgres del entorno
+# de desarrollo de verdad (con datos reales) en vez de uno propio. Nombre de proyecto y de
+# recursos acá quedan sin nada en común con compose.dev.yml para que eso no pueda volver a
+# pasar. La red y el volumen se fijan explícitamente (qullqi_network/qullqi_postgres_data);
+# si venías de un stack con otro nombre y querés conservar sus datos:
+#   docker volume rename <volumen_viejo> qullqi_postgres_data
+name: qullqi
 
 # Stack completo (nginx + frontend + backend + worker + redis + postgres), pensado para
 # probar la topología "real" en un solo host o como base de un deploy. Para desarrollo día
-# a día seguí usando backend/compose.dev.yml (hot-reload de Django + Vite por separado,
-# sin nginx de por medio) — este archivo reconstruye la imagen entera en cada cambio.
+# a día seguí usando backend/compose.dev.yml (proyecto Compose "qullqi-service", hot-reload
+# de Django + Vite por separado, sin nginx de por medio) — este archivo reconstruye la
+# imagen entera en cada cambio.
 #
 # Uso: backend/.env.example -> backend/.env (completar variables; ese mismo archivo trae
 # DB_NAME/HTTP_PORT/PUBLIC_ORIGIN además de la config de Django — no hace falta un .env
@@ -43,9 +47,14 @@ services:
   redis:
     image: redis:7-alpine
     restart: always
+    # Redis quedaba arrancando SIN autenticación (solo accesible en la red interna del stack,
+    # pero en un host remoto cualquiera podría saltar a la red del contenedor). requirepass
+    # cierra eso: el password se lee de backend/.env (REDIS_PASSWORD, generado). El broker de
+    # Celery (abajo) usa la misma variable para autenticarse.
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD:?REDIS_PASSWORD debe definirse en backend/.env}"]
     networks: [stack_network]
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -61,17 +70,30 @@ services:
       - backend/.env
     environment:
       DATABASE_URL: postgres://${DB_USER:-gastos_ingresos}:${DB_PASSWORD:-gastos_ingresos_pass}@postgres:5432/${DB_NAME:-gastos_ingresos}
-      CELERY_BROKER_URL: redis://redis:6379/0
-      CELERY_RESULT_BACKEND: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+      CELERY_RESULT_BACKEND: redis://:${REDIS_PASSWORD}@redis:6379/0
       DJANGO_DEBUG: "False"
       DJANGO_ALLOWED_HOSTS: localhost,127.0.0.1,backend
+      # Registro de cuentas cerrado por defecto en este stack (default seguro; dev lo abre
+      # en backend/.env con DJANGO_ALLOW_REGISTRATION=True).
+      DJANGO_ALLOW_REGISTRATION: ${DJANGO_ALLOW_REGISTRATION:-False}
       CORS_ALLOWED_ORIGINS: ${PUBLIC_ORIGIN:-http://localhost}
       CSRF_TRUSTED_ORIGINS: ${PUBLIC_ORIGIN:-http://localhost}
-      # Sin esto la sesión/CSRF no sobreviven: con DEBUG=False, settings.py pone estas dos
-      # en True por default (ver config/settings.py), y una cookie "Secure" no la manda el
-      # navegador por HTTP plano. Sacar estos dos overrides en cuanto nginx tenga TLS real.
-      SESSION_COOKIE_SECURE: "False"
-      CSRF_COOKIE_SECURE: "False"
+      # Cookies seguras + HTTP->HTTPS. Defaults pensados para el stack local actual (nginx
+      # self-signed sirviendo HTTP plano): sin TLS real, una cookie "Secure" no la manda el
+      # navegador por HTTP y el login quedaba roto. En cuanto haya dominio + certbot:
+      #   SESSION_COOKIE_SECURE=True  CSRF_COOKIE_SECURE=True
+      #   DJANGO_SECURE_SSL_REDIRECT=True  DJANGO_SECURE_HSTS_SECONDS=31536000
+      # (y DJANGO_TRUST_PROXY_SSL_HEADER=True, nginx ya manda X-Forwarded-Proto — ver
+      # config/settings.py). Los valores por defecto se pueden sobrescribir desde backend/.env.
+      SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-False}
+      CSRF_COOKIE_SECURE: ${CSRF_COOKIE_SECURE:-False}
+      DJANGO_SECURE_SSL_REDIRECT: ${DJANGO_SECURE_SSL_REDIRECT:-False}
+      DJANGO_SECURE_HSTS_SECONDS: ${DJANGO_SECURE_HSTS_SECONDS:-0}
+      DJANGO_SECURE_HSTS_INCLUDE_SUBDOMAINS: ${DJANGO_SECURE_HSTS_INCLUDE_SUBDOMAINS:-False}
+      # Cierra /admin/ en producción por defecto (default = DEBUG en settings.py). Si un día
+      # se quiere abrir, DJANGO_ENABLE_ADMIN=True explícito.
+      DJANGO_ENABLE_ADMIN: ${DJANGO_ENABLE_ADMIN:-False}
     command:
       - /bin/sh
       - -lc
@@ -97,8 +119,8 @@ services:
       - backend/.env
     environment:
       DATABASE_URL: postgres://${DB_USER:-gastos_ingresos}:${DB_PASSWORD:-gastos_ingresos_pass}@postgres:5432/${DB_NAME:-gastos_ingresos}
-      CELERY_BROKER_URL: redis://redis:6379/0
-      CELERY_RESULT_BACKEND: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+      CELERY_RESULT_BACKEND: redis://:${REDIS_PASSWORD}@redis:6379/0
       DJANGO_DEBUG: "False"
     command: celery -A config worker --loglevel=info --concurrency=2
     networks: [stack_network]
@@ -129,7 +151,9 @@ services:
 
 networks:
   stack_network:
+    name: qullqi_network
     driver: bridge
 
 volumes:
   stack_postgres_data:
+    name: qullqi_postgres_data

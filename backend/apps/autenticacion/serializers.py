@@ -81,3 +81,31 @@ class ChangePasswordSerializer(serializers.Serializer):
                 {"new_password": "La nueva contraseña debe ser diferente a la actual."}
             )
         return attrs
+
+
+class LoginOtpSerializer(serializers.Serializer):
+    # Acepta el TOTP de 6 dígitos o un código de respaldo (16 caracteres base32).
+    code = serializers.CharField(trim_whitespace=True, min_length=6, max_length=16)
+
+
+class TotpCodeSerializer(serializers.Serializer):
+    code = serializers.CharField(trim_whitespace=True, min_length=6, max_length=16)
+
+
+class ChangeEmailSerializer(serializers.Serializer):
+    new_email = serializers.EmailField()
+
+    def validate(self, attrs):
+        new_email = attrs["new_email"].strip().lower()
+        user = self.context["user"]
+        if user.email and new_email == user.email.lower():
+            raise serializers.ValidationError({"new_email": "El nuevo correo es igual al actual."})
+        from .models import User
+        if User.objects.filter(email__iexact=new_email).exclude(pk=user.pk).exists():
+            raise serializers.ValidationError({"new_email": "Ese correo ya está en uso."})
+        attrs["new_email"] = new_email
+        return attrs
+
+
+class SessionsRevokeSerializer(serializers.Serializer):
+    id = serializers.CharField(max_length=64)

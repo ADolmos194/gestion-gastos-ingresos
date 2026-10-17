@@ -2,7 +2,6 @@
 
 interface ImportMetaEnv {
   readonly VITE_URL_BASE: string
-  readonly VITE_SYSTEM_KEY: string
   readonly VITE_AUTH_TRANSITION_DELAY_MS?: string
   // IDs de apps/configuraciones/management/commands/seed_statuses.json (tabla cfg_status).
   readonly VITE_STATUS_ACTIVATE: string

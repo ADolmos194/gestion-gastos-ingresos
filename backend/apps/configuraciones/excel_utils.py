@@ -15,6 +15,10 @@ from rest_framework.exceptions import ValidationError
 
 XLSX_CONTENT_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
+# La intersección de caracteres que disparan fórmula en Excel (y LibreOffice/Sheets), con
+# tab/CR/NUL de más porque a veces preceden a los peligrosos en ataques reales.
+_XLSX_DANGEROUS_PREFIXES = ("=", "+", "-", "@", "\t", "\r", "\n", "\0")
+
 # nginx ya corta en 20m (ver nginx/nginx.conf, client_max_body_size) — este límite es más
 # chico a propósito: nada que ver acá adentro necesita un .xlsx de importación tan grande
 # (Categorías/Monedas/Cuentas son catálogos, no transacciones), y sin este tope un archivo
@@ -110,6 +114,35 @@ def style_worksheet(ws: Worksheet, df: pd.DataFrame, active_status_name: str, ca
     ws.sheet_view.showGridLines = False
 
 
+def _sanitize_xlsx_value(value: object) -> object:
+    """Neutraliza la inyección de fórmulas (CSV injection / formula injection) en las celdas
+    de exportación. Excel/LibreOffice interpretan una celda TEXTO cuyo primer carácter es
+    = + - @ (o tab/CR/NUL) como una fórmula (o un vínculo DDE/OLE), así que un nombre o
+    descripción tipo '=HYPERLINK(\"...\")' guardado por un usuario alcanzaría para ejecutar
+    comandos en la máquina del que abre el archivo exportado.
+
+    Solución estándar (misma que usan OWASP y pandas para CSV): prefijar el valor con una
+    comilla simple, que fuerza a la planilla a tratarlo como texto literal. Solo se tocan
+    strings — los valores numéricos/None pasan igual (en los DFS de acá no hay números, pero
+    así queda a prueba de futuros usos)."""
+    if isinstance(value, str) and value[:1] in _XLSX_DANGEROUS_PREFIXES:
+        return "'" + value
+    return value
+
+
+def _sanitize_dataframe(df: pd.DataFrame) -> None:
+    """Aplica _sanitize_xlsx_value solo a las columnas que de verdad lo necesiten (evita
+    copiar el DataFrame entero). Muta df in place, antes de volcarlo al .xlsx."""
+    for column in df.columns:
+        column_values = df[column]
+        needs_sanitize = any(
+            isinstance(value, str) and value[:1] in _XLSX_DANGEROUS_PREFIXES
+            for value in column_values
+        )
+        if needs_sanitize:
+            df[column] = column_values.map(_sanitize_xlsx_value)
+
+
 def dataframe_to_xlsx_response(
     df: pd.DataFrame,
     filename: str,
@@ -117,6 +150,7 @@ def dataframe_to_xlsx_response(
     active_status_name: str,
     cancelled_status_name: str,
 ) -> HttpResponse:
+    _sanitize_dataframe(df)
     buffer = BytesIO()
     with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
         df.to_excel(writer, index=False, sheet_name=sheet_name)

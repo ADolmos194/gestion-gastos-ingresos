@@ -3,6 +3,9 @@
 FREE_APIS = (
     "/api/auth/csrf/",
     "/api/auth/login/",
+    # El segundo paso del login (código TOTP/respaldo): la sesión ANÓNIMA porta el challenge
+    # (pending_otp_user_id, ver LoginView/LoginOtpView), no hay sesión autenticada todavía.
+    "/api/auth/login/2fa/",
     "/api/auth/register/",
     "/api/auth/forgot-password/",
     "/api/auth/reset-password/",
@@ -30,3 +33,34 @@ class FreeApiMiddleware:
     def __call__(self, request):
         request.is_free_api = is_free_api(request.path)
         return self.get_response(request)
+
+
+class SessionMetaMiddleware:
+    """Guarda metadatos del dispositivo (IP + user-agent + última actividad) en la sesión de
+    cada request autenticado, para que ActiveSessionsView pueda mostrar sesiones activas en
+    otros dispositivos.
+
+    Apoya en SESSION_SAVE_EVERY_REQUEST=True (settings.py) para que persista en cada request
+    sin marcar la sesión explícitamente. Se puede responder con el último dato registrado —
+    es informativo, no una medida de autenticación.
+    """
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        response = self.get_response(request)
+        user = getattr(request, "user", None)
+        if user is not None and getattr(user, "is_authenticated", False) and hasattr(request, "session"):
+            request.session["device_info"] = {
+                "ip": request.META.get("REMOTE_ADDR", ""),
+                "user_agent": (request.META.get("HTTP_USER_AGENT", "") or "")[:300],
+                "last_seen": self._now(),
+            }
+        return response
+
+    @staticmethod
+    def _now():
+        from django.utils import timezone
+
+        return timezone.now().isoformat()

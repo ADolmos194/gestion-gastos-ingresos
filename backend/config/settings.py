@@ -3,6 +3,7 @@ Django settings for config project.
 """
 
 from pathlib import Path
+import logging
 import os
 
 import dj_database_url
@@ -26,7 +27,10 @@ def env_bool(name, default=False):
 SECRET_KEY = os.getenv('DJANGO_SECRET_KEY', 'django-insecure-change-me-in-env')
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = env_bool('DJANGO_DEBUG', True)
+# Default seguro (False): en desarrollo el backend/.env local setea DJANGO_DEBUG=True, y el
+# stack de producción lo fuerza a False en docker-compose.yml — pero si alguien despliega
+# sin escribir una sola variable, cae cerrado y no con el ecosistema de DEBUG expuesto.
+DEBUG = env_bool('DJANGO_DEBUG', False)
 
 ALLOWED_HOSTS = [
     host.strip()
@@ -70,6 +74,7 @@ MIDDLEWARE = [
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'apps.autenticacion.middleware.FreeApiMiddleware',
+    'apps.autenticacion.middleware.SessionMetaMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
@@ -165,6 +170,10 @@ REST_FRAMEWORK = {
         # Límite de reenvíos de código por IP; el cooldown real (por usuario) vive en
         # VerificationCode.has_recent_active, esto es una segunda capa por IP.
         'email_verify_resend': '3/hour',
+        # Límite de intentos del segundo paso del login (código TOTP/respaldo, LOGIN con 2FA).
+        '2fa': '5/min',
+        # Límite de solicitudes/confirmaciones de cambio de correo por IP.
+        'change_email': '3/hour',
     },
 }
 
@@ -221,6 +230,21 @@ SECURE_HSTS_SECONDS = int(os.getenv('DJANGO_SECURE_HSTS_SECONDS', '0'))
 SECURE_HSTS_INCLUDE_SUBDOMAINS = env_bool('DJANGO_SECURE_HSTS_INCLUDE_SUBDOMAINS', False)
 SECURE_HSTS_PRELOAD = env_bool('DJANGO_SECURE_HSTS_PRELOAD', False)
 
+# Admin de Django: SOLO habilitado en desarrollo por defecto. El admin no tiene 2FA ni
+# bloqueo de cuenta (solo el rate-limit de nginx en /admin/login/) y es la mayor superficie
+# de ataque del proyecto; roles/permisos/usuarios se administran desde la propia UI. En
+# producción deshabilitar con DJANGO_ENABLE_ADMIN=False (o simplemente no setearlo, ya que
+# el default sigue a DEBUG) — config/urls.py devuelve 410 Gone /admin/ estando deshabilitado.
+ENABLE_ADMIN = env_bool('DJANGO_ENABLE_ADMIN', DEBUG)
+
+# Registro abierto (POST /api/auth/register/): cerrado por defecto, igual que el admin.
+# Mientras un usuario nuevo pueda crearse una cuenta por su cuenta, cualquiera puede
+# registrarse y quedar con el rol base (y sus menús/permisos, ver autenticacion/signals.py)
+# sin contrato previo. En desarrollo hay que habilitarlo explícitamente
+# (DJANGO_ALLOW_REGISTRATION=True en backend/.env); el stack de docker-compose de la raíz
+# lo fuerza a False salvo que se pase la variable.
+ALLOW_REGISTRATION = env_bool('DJANGO_ALLOW_REGISTRATION', False)
+
 
 # Supabase (uso opcional del SDK además de la conexión directa a Postgres)
 SUPABASE_URL = os.getenv('SUPABASE_URL', '')
@@ -235,12 +259,19 @@ EMAIL_PORT = int(os.getenv('EMAIL_PORT', 587))
 EMAIL_HOST_USER = os.getenv('EMAIL_HOST_USER', '')
 EMAIL_HOST_PASSWORD = os.getenv('EMAIL_HOST_PASSWORD', '')
 EMAIL_USE_TLS = env_bool('EMAIL_USE_TLS', True)
-DEFAULT_FROM_EMAIL = os.getenv('DEFAULT_FROM_EMAIL', 'no-reply@gastos-ingresos.local')
+DEFAULT_FROM_EMAIL = os.getenv('DEFAULT_FROM_EMAIL', 'no-reply@qullqi.local')
 
 # Códigos de verificación de 6 dígitos (email al registrarse, reset de contraseña). Ver
 # apps.autenticacion.models.VerificationCode.
 VERIFICATION_CODE_TTL_MINUTES = int(os.getenv('VERIFICATION_CODE_TTL_MINUTES', 10))
 VERIFICATION_RESEND_COOLDOWN_SECONDS = int(os.getenv('VERIFICATION_RESEND_COOLDOWN_SECONDS', 60))
+
+# 2FA (apps/autenticacion/two_factor.py). TWO_FA_TOTP_ISSUER es el nombre que verá la app de
+# autenticación al escanear el código QR; cambiar solo si un día se marca la marca.
+TWO_FA_TOTP_ISSUER = os.getenv('TWO_FA_TOTP_ISSUER', 'Qullqi')
+# Cuánto (en segundos) aguanta el login pausado esperando el código TOTP/respaldo antes de
+# invalidarse y pedir login desde cero.
+TWO_FA_LOGIN_TTL_SECONDS = int(os.getenv('TWO_FA_LOGIN_TTL_SECONDS', 300))
 
 
 # Internationalization
@@ -339,3 +370,23 @@ LOGGING = {
         },
     },
 }
+
+
+# Diagnóstico de despliegue al arrancar "a lo producción" (DEBUG=False): avisa fuerte si el
+# stack no está sirviendo por HTTPS (cookie de sesión en claro, sin redirect). Los checks de
+# `manage.py check --deploy` (W004/W008/W021/etc.) cubren el resto a nivel de comando manual;
+# esto se imprime en cada arranque para que no dependa de acordarse de correr ese comando.
+if not DEBUG:
+    _settings_logger = logging.getLogger(__name__)
+    if not SESSION_COOKIE_SECURE:
+        _settings_logger.warning(
+            "Arrancando con DEBUG=False pero SESSION_COOKIE_SECURE=False: la cookie de sesión "
+            "viaja en claro. Activá TLS real (nginx/certbot) y poné SESSION_COOKIE_SECURE=True "
+            "y CSRF_COOKIE_SECURE=True en el entorno."
+        )
+    if not SECURE_SSL_REDIRECT:
+        _settings_logger.warning(
+            "Arrancando con DEBUG=False pero DJANGO_SECURE_SSL_REDIRECT=False: el sitio se "
+            "sirve por HTTP plano. Con un certificado real, activá "
+            "DJANGO_SECURE_SSL_REDIRECT=True y DJANGO_TRUST_PROXY_SSL_HEADER=True."
+        )

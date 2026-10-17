@@ -166,11 +166,38 @@ async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
   return data as T
 }
 
+// Cuando la cuenta tiene 2FA, LoginView responde 202 con este cuerpo en vez de la sesión:
+// el login queda "pausado" hasta validar el código en /api/auth/login/2fa/ (ver backend).
+export interface LoginChallenge {
+  detail: string
+  reason: "otp_required"
+}
+
+export type LoginResult = SessionUser | LoginChallenge
+
+export function isOtpChallenge(result: LoginResult): result is LoginChallenge {
+  return (
+    typeof result === "object" &&
+    result !== null &&
+    "reason" in result &&
+    (result as LoginChallenge).reason === "otp_required"
+  )
+}
+
 // "identifier" acepta el username o el email registrado (ver backend LoginView).
 export function login(identifier: string, password: string) {
-  return apiFetch<SessionUser>("/api/auth/login/", {
+  return apiFetch<LoginResult>("/api/auth/login/", {
     method: "POST",
     body: JSON.stringify({ username: identifier, password }),
+  })
+}
+
+// Segundo paso del login cuando la cuenta tiene 2FA: valida el código TOTP (o de respaldo)
+// del usuario que quedó "pendiente" en la sesión anónima y recién ahí crea la sesión real.
+export function loginOtp(code: string) {
+  return apiFetch<SessionUser>("/api/auth/login/2fa/", {
+    method: "POST",
+    body: JSON.stringify({ code }),
   })
 }
 
@@ -250,4 +277,91 @@ export function changePassword(currentPassword: string, newPassword: string) {
     method: "POST",
     body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
   })
+}
+
+// ---- 2FA (TOTP) -------------------------------------------------------------
+
+export interface TwoFactorStatus {
+  enabled: boolean
+}
+
+// Devuelve el secreto (para dárselo de alta en la app de autenticación) y la URL otpauth.
+// El 2FA recién queda ACTIVO cuando se confirma con TwoFactorConfirmView (setup + confirm).
+export interface TwoFactorSetupResult {
+  secret: string
+  otpauth_url: string
+}
+
+export function twoFactorStatus() {
+  return apiFetch<TwoFactorStatus>("/api/auth/2fa/status/")
+}
+
+export function twoFactorSetup() {
+  return apiFetch<TwoFactorSetupResult>("/api/auth/2fa/setup/", { method: "POST" })
+}
+
+// Activa el 2FA con un código TOTP válido del secreto pendiente y devuelve los códigos de
+// respaldo (que el backend no vuelve a mostrar: guardar antes de cerrar).
+export function twoFactorConfirm(code: string) {
+  return apiFetch<{ recovery_codes: string[] }>("/api/auth/2fa/confirm/", {
+    method: "POST",
+    body: JSON.stringify({ code }),
+  })
+}
+
+export function twoFactorDisable(code: string) {
+  return apiFetch<{ detail: string }>("/api/auth/2fa/disable/", {
+    method: "POST",
+    body: JSON.stringify({ code }),
+  })
+}
+
+export function twoFactorRegenerateRecovery(code: string) {
+  return apiFetch<{ recovery_codes: string[] }>("/api/auth/2fa/recovery/regenerate/", {
+    method: "POST",
+    body: JSON.stringify({ code }),
+  })
+}
+
+// ---- Cambio de correo -------------------------------------------------------
+
+export function changeEmailRequest(newEmail: string) {
+  return apiFetch<{ detail: string }>("/api/auth/change-email/request/", {
+    method: "POST",
+    body: JSON.stringify({ new_email: newEmail }),
+  })
+}
+
+export function changeEmailConfirm(newEmail: string, code: string) {
+  return apiFetch<{ detail: string; email: string }>("/api/auth/change-email/confirm/", {
+    method: "POST",
+    body: JSON.stringify({ new_email: newEmail, code }),
+  })
+}
+
+// ---- Sesiones activas -------------------------------------------------------
+
+export interface ActiveSession {
+  // Prefijo del hash de la session key (el backend nunca expone la key real).
+  id: string
+  current: boolean
+  ip: string
+  user_agent: string
+  last_seen: string | null
+  expires_at: string | null
+}
+
+export function activeSessions(signal?: AbortSignal) {
+  return apiFetch<{ sessions: ActiveSession[] }>("/api/auth/sessions/", { signal })
+}
+
+export function revokeSession(id: string) {
+  return apiFetch<{ detail: string }>("/api/auth/sessions/revoke/", {
+    method: "POST",
+    body: JSON.stringify({ id }),
+  })
+}
+
+export function logoutAllSessions() {
+  return apiFetch<{ detail: string }>("/api/auth/sessions/logout-all/", { method: "POST" })
 }

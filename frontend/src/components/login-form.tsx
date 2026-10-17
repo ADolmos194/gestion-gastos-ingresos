@@ -2,7 +2,7 @@ import { Infinity as InfinityIcon } from "lucide-react"
 import { useEffect, useRef, useState, type FormEvent } from "react"
 import { Link, useLocation, useNavigate } from "react-router"
 
-import { ApiError, login } from "@/lib/api"
+import { ApiError, isOtpChallenge, login, loginOtp } from "@/lib/api"
 import { AUTH_TRANSITION_DELAY_MS, useAuth } from "@/lib/auth-context"
 import { toastPromise, toastSuccess } from "@/lib/toast"
 import { cn, withMinDuration } from "@/lib/utils"
@@ -36,6 +36,11 @@ export function LoginForm({
   const [identifier, setIdentifier] = useState("")
   const [password, setPassword] = useState("")
   const [isSubmitting, setIsSubmitting] = useState(false)
+  // El login se hace en dos pasos cuando la cuenta tiene 2FA activo (ver LoginChallenge):
+  // primero credenciales, y con el 202 el form cambia a pedir el código TOTP/respaldo.
+  const [requiresOtp, setRequiresOtp] = useState(false)
+  const [otpCode, setOtpCode] = useState("")
+  const [isConfirmingOtp, setIsConfirmingOtp] = useState(false)
 
   // Ref, no state: evita que StrictMode (doble-invocación de efectos en dev) muestre
   // el mismo toast dos veces al montar.
@@ -60,10 +65,17 @@ export function LoginForm({
       // backend responde, sin esperar nada de lo que pasa acá abajo.
       const user = await toastPromise(withMinDuration(login(identifier, password), AUTH_TRANSITION_DELAY_MS), {
         loading: "Validando credenciales…",
-        success: "Sesión iniciada correctamente.",
+        success: (result) =>
+          isOtpChallenge(result) ? "Código de verificación requerido." : "Sesión iniciada correctamente.",
         error: (err) =>
           err instanceof ApiError ? err.message : "No se pudo conectar con el servidor.",
       })
+      // 2FA activo: el backend pausó el login (202) — sin sesión todavía, pasamos al
+      // segundo paso. El toast ya avisó "código requerido", no hay nada más que hacer acá.
+      if (isOtpChallenge(user)) {
+        setRequiresOtp(true)
+        return
+      }
       await new Promise((resolve) => setTimeout(resolve, SUCCESS_TOAST_SETTLE_MS))
       completeLogin(user)
       navigate(locationState?.from?.pathname ?? "/", { replace: true })
@@ -83,71 +95,149 @@ export function LoginForm({
     }
   }
 
+  async function handleOtpSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    setIsConfirmingOtp(true)
+    try {
+      const user = await toastPromise(withMinDuration(loginOtp(otpCode.trim()), AUTH_TRANSITION_DELAY_MS), {
+        loading: "Confirmando código…",
+        success: "Sesión iniciada correctamente.",
+        error: (err) =>
+          err instanceof ApiError ? err.message : "No se pudo conectar con el servidor.",
+      })
+      await new Promise((resolve) => setTimeout(resolve, SUCCESS_TOAST_SETTLE_MS))
+      completeLogin(user)
+      navigate(locationState?.from?.pathname ?? "/", { replace: true })
+    } catch (err) {
+      // Solo el 401 vuelve al paso de credenciales: es el challenge 2FA expirado (el usuario
+      // tardó más de TWO_FA_LOGIN_TTL_SECONDS en responder) y LoginView debe pedirse de nuevo.
+      // Un código incorrecto (400) o un throttle (429) deja el form en el mismo paso para reintentar.
+      if (err instanceof ApiError && err.status === 401) {
+        setRequiresOtp(false)
+        setOtpCode("")
+      }
+    } finally {
+      setIsConfirmingOtp(false)
+    }
+  }
+
+  function backToCredentials() {
+    setRequiresOtp(false)
+    setOtpCode("")
+  }
+
   return (
     <div className={cn("flex flex-col gap-6", className)} {...props}>
       <Card className="overflow-hidden p-0">
         <CardContent className="grid p-0 md:grid-cols-2">
-          <form className="p-6 md:p-8" onSubmit={handleSubmit}>
+          <form className="p-6 md:p-8" onSubmit={requiresOtp ? handleOtpSubmit : handleSubmit}>
             <FieldGroup>
               <div className="flex flex-col items-center gap-2 text-center">
                 <h1 className="text-2xl font-bold">Bienvenido de nuevo</h1>
                 <p className="text-balance text-muted-foreground">
-                  Ingresa a tu cuenta de Gastos e Ingresos
+                  {requiresOtp
+                    ? "Ingresá el código de verificación"
+                    : "Ingresa a tu cuenta de Qullqi"}
                 </p>
               </div>
-              <Field>
-                <FieldLabel htmlFor="email">Correo</FieldLabel>
-                <Input
-                  id="email"
-                  type="text"
-                  autoComplete="username"
-                  placeholder="tucorreo@ejemplo.com"
-                  value={identifier}
-                  onChange={(event) => setIdentifier(event.target.value)}
-                  required
-                />
-              </Field>
-              <Field>
-                <div className="flex items-center">
-                  <FieldLabel htmlFor="password">Contraseña</FieldLabel>
-                  <Link
-                    to="/forgot-password"
-                    className="ml-auto text-sm underline-offset-4 hover:underline"
-                  >
-                    ¿Olvidaste tu contraseña?
-                  </Link>
-                </div>
-                <Input
-                  id="password"
-                  type="password"
-                  autoComplete="current-password"
-                  value={password}
-                  onChange={(event) => setPassword(event.target.value)}
-                  required
-                />
-              </Field>
-              <Field>
-                <Button type="submit" disabled={isSubmitting}>
-                  {isSubmitting ? "Ingresando…" : "Ingresar"}
-                </Button>
-              </Field>
-              <FieldSeparator>O continúa con</FieldSeparator>
-              <Field className="grid grid-cols-3 gap-4">
-                <Button variant="outline" type="button" disabled>
-                  <AppleIcon />
-                  <span className="sr-only">Ingresar con Apple</span>
-                </Button>
-                <Button variant="outline" type="button" disabled>
-                  <GoogleIcon />
-                  <span className="sr-only">Ingresar con Google</span>
-                </Button>
-                <Button variant="outline" type="button" disabled>
-                  <InfinityIcon />
-                  <span className="sr-only">Ingresar con Meta</span>
-                </Button>
-              </Field>
+              {requiresOtp ? (
+                <>
+                  <Field>
+                    <FieldLabel htmlFor="otp">Código de verificación</FieldLabel>
+                    <Input
+                      id="otp"
+                      type="text"
+                      inputMode="numeric"
+                      autoComplete="one-time-code"
+                      placeholder="Código de 6 dígitos o de respaldo"
+                      value={otpCode}
+                      onChange={(event) => setOtpCode(event.target.value)}
+                      autoFocus
+                      required
+                    />
+                    <FieldDescription>
+                      Usá el código que genera tu app de autenticación. Si perdés el acceso,
+                      podés usar uno de tus códigos de respaldo.
+                    </FieldDescription>
+                  </Field>
+                  <Field>
+                    <Button type="submit" disabled={isConfirmingOtp}>
+                      {isConfirmingOtp ? "Confirmando…" : "Confirmar código"}
+                    </Button>
+                  </Field>
+                  <FieldDescription className="text-center">
+                    <button
+                      type="button"
+                      onClick={backToCredentials}
+                      className="text-sm underline-offset-4 hover:underline"
+                    >
+                      Volver a pedir sesión
+                    </button>
+                  </FieldDescription>
+                </>
+              ) : (
+                <>
+                  <Field>
+                    <FieldLabel htmlFor="email">Correo</FieldLabel>
+                    <Input
+                      id="email"
+                      type="text"
+                      autoComplete="username"
+                      placeholder="tucorreo@ejemplo.com"
+                      value={identifier}
+                      onChange={(event) => setIdentifier(event.target.value)}
+                      required
+                    />
+                  </Field>
+                  <Field>
+                    <div className="flex items-center">
+                      <FieldLabel htmlFor="password">Contraseña</FieldLabel>
+                      <Link
+                        to="/forgot-password"
+                        className="ml-auto text-sm underline-offset-4 hover:underline"
+                      >
+                        ¿Olvidaste tu contraseña?
+                      </Link>
+                    </div>
+                    <Input
+                      id="password"
+                      type="password"
+                      autoComplete="current-password"
+                      value={password}
+                      onChange={(event) => setPassword(event.target.value)}
+                      required
+                    />
+                  </Field>
+                  <Field>
+                    <Button type="submit" disabled={isSubmitting}>
+                      {isSubmitting ? "Ingresando…" : "Ingresar"}
+                    </Button>
+                  </Field>
+                  <FieldSeparator>O continúa con</FieldSeparator>
+                  <Field className="grid grid-cols-3 gap-4">
+                    <Button variant="outline" type="button" disabled>
+                      <AppleIcon />
+                      <span className="sr-only">Ingresar con Apple</span>
+                    </Button>
+                    <Button variant="outline" type="button" disabled>
+                      <GoogleIcon />
+                      <span className="sr-only">Ingresar con Google</span>
+                    </Button>
+                    <Button variant="outline" type="button" disabled>
+                      <InfinityIcon />
+                      <span className="sr-only">Ingresar con Meta</span>
+                    </Button>
+                  </Field>
+                </>
+              )}
               <FieldDescription className="text-center">
-                ¿No tienes una cuenta? <Link to="/register">Regístrate</Link>
+                {requiresOtp ? (
+                  <>Usás {identifier}</>
+                ) : (
+                  <>
+                    ¿No tienes una cuenta? <Link to="/register">Regístrate</Link>
+                  </>
+                )}
               </FieldDescription>
             </FieldGroup>
           </form>

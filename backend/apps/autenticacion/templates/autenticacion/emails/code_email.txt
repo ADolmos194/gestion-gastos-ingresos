@@ -9,4 +9,4 @@ Este código vence en {{ ttl_minutes }} minutos.
 {{ footer_note }}
 
 --
-Gastos e Ingresos
+Qullqi

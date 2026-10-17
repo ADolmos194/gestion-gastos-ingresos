@@ -5,7 +5,7 @@ from django.utils import timezone
 
 from .models import User
 
-# "GASTOS E INGRESOS PERMISSION LIMIT" (ver seed_roles.json): rol base que se le asigna a
+# "QULLQI PERMISSION LIMIT" (ver seed_roles.json): rol base que se le asigna a
 # todo usuario nuevo. Por sí solo no da acceso al sistema (arranca sin menús en RoleMenu);
 # un administrador amplía sus permisos vinculando menús/permisos a este rol después.
 DEFAULT_ROLE_ID = "9726bc04-3c0e-4ff5-b547-d4192b403ff5"

@@ -1,4 +1,4 @@
-import { Suspense } from "react"
+import { lazy, Suspense } from "react"
 import { BrowserRouter, Navigate, Route, Routes } from "react-router"
 
 import { AuthLoadingScreen } from "@/components/auth-loading-screen"
@@ -12,6 +12,8 @@ import ForgotPasswordPage from "@/pages/ForgotPasswordPage"
 import LoginPage from "@/pages/LoginPage"
 import RegisterPage from "@/pages/RegisterPage"
 import VerifyEmailPage from "@/pages/VerifyEmailPage"
+
+const SecurityPage = lazy(() => import("@/pages/SecurityPage"))
 
 function App() {
   return (
@@ -53,6 +55,16 @@ function App() {
                 }
               />
               <Route element={<RequireAuth />}>
+                {/* "Seguridad" es de cuenta (no un sujeto de menú): cualquier usuario autenticado
+                    la ve, sin depender de RequireMenuAccess. */}
+                <Route
+                  path="/seguridad"
+                  element={
+                    <Suspense fallback={<AuthLoadingScreen />}>
+                      <SecurityPage />
+                    </Suspense>
+                  }
+                />
                 <Route element={<RequireMenuAccess />}>
                   {Object.entries(pageRoutes).map(([subject, { path, component: LazyPage }]) => (
                     <Route

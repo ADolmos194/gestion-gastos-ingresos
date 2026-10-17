@@ -68,7 +68,7 @@ export function RegisterForm({
               <div className="flex flex-col items-center gap-2 text-center">
                 <h1 className="text-2xl font-bold">Crea tu cuenta</h1>
                 <p className="text-balance text-muted-foreground">
-                  Regístrate para empezar a usar Gastos e Ingresos
+                  Regístrate para empezar a usar Qullqi
                 </p>
               </div>
               <Field>

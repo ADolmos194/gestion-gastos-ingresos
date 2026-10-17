@@ -1,19 +1,19 @@
-name: gastos_ingresos
+name: qullqi-service
 
 services:
   postgres:
     image: postgres:16-alpine
-    container_name: gastos_ingresos_postgres
+    container_name: qullqi-service-postgres
     restart: always
     environment:
       POSTGRES_DB: ${DB_NAME_DEFAULT:-gastos_ingresos_local}
       POSTGRES_USER: ${DB_USER_DEFAULT:-gastos_ingresos}
       POSTGRES_PASSWORD: ${DB_PASSWORD_DEFAULT:-gastos_ingresos_pass}
     volumes:
-      - gastos_ingresos_postgres_data:/var/lib/postgresql/data
+      - qullqi_service_postgres_data:/var/lib/postgresql/data
     ports:
       - "5433:5432"
-    networks: [ gastos_ingresos_network ]
+    networks: [ qullqi_service_network ]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${DB_USER_DEFAULT:-gastos_ingresos} -d ${DB_NAME_DEFAULT:-gastos_ingresos_local}"]
       interval: 5s
@@ -22,11 +22,11 @@ services:
 
   redis:
     image: redis:7-alpine
-    container_name: gastos_ingresos_redis
+    container_name: qullqi-service-redis
     restart: always
     ports:
       - "6380:6379"
-    networks: [ gastos_ingresos_network ]
+    networks: [ qullqi_service_network ]
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -37,7 +37,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: gastos_ingresos_backend
+    container_name: qullqi-service-backend
     volumes:
       - .:/app
     ports:
@@ -57,7 +57,7 @@ services:
         python manage.py seed_local_db &&
         python manage.py runserver 0.0.0.0:8000
     networks:
-      - gastos_ingresos_network
+      - qullqi_service_network
     depends_on:
       postgres:
         condition: service_healthy
@@ -71,7 +71,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: gastos_ingresos_worker
+    container_name: qullqi-service-worker
     volumes:
       - .:/app
     env_file:
@@ -83,7 +83,7 @@ services:
       CELERY_RESULT_BACKEND: redis://redis:6379/0
     command: celery -A config worker --loglevel=info --concurrency=1
     networks:
-      - gastos_ingresos_network
+      - qullqi_service_network
     depends_on:
       postgres:
         condition: service_healthy
@@ -91,8 +91,11 @@ services:
         condition: service_healthy
 
 networks:
-  gastos_ingresos_network:
+  qullqi_service_network:
     driver: bridge
 
 volumes:
-  gastos_ingresos_postgres_data:
+  qullqi_service_postgres_data:
+    # Pineado al volumen físico ya existente (creado bajo el proyecto "gastos_ingresos" de
+    # antes del rename) para no perder los datos de desarrollo al cambiar de proyecto/clave.
+    name: gastos_ingresos_gastos_ingresos_postgres_data

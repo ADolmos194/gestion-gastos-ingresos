@@ -18,19 +18,19 @@ jobs:
       postgres:
         image: postgres:16-alpine
         env:
-          POSTGRES_DB: gastos_ingresos_ci
-          POSTGRES_USER: gastos_ingresos
-          POSTGRES_PASSWORD: gastos_ingresos_pass
+          POSTGRES_DB: qullqi_ci
+          POSTGRES_USER: qullqi
+          POSTGRES_PASSWORD: qullqi_pass
         ports: ["5432:5432"]
         options: >-
-          --health-cmd="pg_isready -U gastos_ingresos -d gastos_ingresos_ci"
+          --health-cmd="pg_isready -U qullqi -d qullqi_ci"
           --health-interval=5s
           --health-timeout=5s
           --health-retries=10
     env:
       DJANGO_SECRET_KEY: ci-only-secret-key-never-use-in-production
       DJANGO_DEBUG: "True"
-      DATABASE_URL: postgresql://gastos_ingresos:gastos_ingresos_pass@localhost:5432/gastos_ingresos_ci
+      DATABASE_URL: postgresql://qullqi:qullqi_pass@localhost:5432/qullqi_ci
       # Ningún test llama a .delay() de verdad (ver apps.configuraciones.tasks) — Celery no
       # conecta al importar settings, así que no hace falta un Redis real en este job.
       CELERY_BROKER_URL: redis://localhost:6379/0
@@ -53,6 +53,18 @@ jobs:
 
       - name: Tests
         run: python manage.py test
+
+      # Los warnings W004/W008 (cookies/TLS) son esperados: sin un dominio real con
+      # certbot en CI no se pueden activar, ver config/settings.py. Lo que importa acá es
+      # que no aparezcan errores nuevos frente a DEBUG=False real (el job de arriba corre
+      # con DJANGO_DEBUG=True para los tests).
+      - name: Deploy checks (check --deploy)
+        env:
+          DJANGO_DEBUG: "False"
+          DJANGO_ALLOWED_HOSTS: "localhost,127.0.0.1"
+          SESSION_COOKIE_SECURE: "False"
+          CSRF_COOKIE_SECURE: "False"
+        run: python manage.py check --deploy
 
   frontend:
     runs-on: ubuntu-latest
@@ -79,6 +91,55 @@ jobs:
 
       - name: Lint
         run: pnpm run lint
+
+  # Corren en paralelo a backend/frontend (no bloquean el build ni dependen de él): son el
+  # escaneo de secretos + las auditorías de dependencias. Aptas para fallar la PR cuando
+  # aparece una advisory conocida o un secreto colado en el diff/history de git.
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # gitleaks analiza la history completa, no solo el último commit.
+          fetch-depth: 0
+
+      - name: Gitleaks (secret scan)
+        run: |
+          curl -sSfL -o gitleaks.tar.gz \
+            https://github.com/gitleaks/gitleaks/releases/download/v8.24.3/gitleaks_8.24.3_linux_x64.tar.gz
+          tar -xzf gitleaks.tar.gz gitleaks
+          ./gitleaks detect --source . --report-format json --report-path gitleaks-report.json --no-banner --exit-code 1
+          echo "Sin secretos detectados."
+
+      # Sube el reporte como artifact aunque solo sea para revisión manual.
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: gitleaks-report
+          path: gitleaks-report.json
+          if-no-files-found: ignore
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: pip-audit (dependencias Python)
+        run: |
+          pip install pip-audit
+          pip-audit -r backend/requirements.txt --disable-pip
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "pnpm"
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: pnpm audit (dependencias del frontend)
+        run: pnpm install --frozen-lockfile && pnpm audit --prod --audit-level=high
 
   docker-build:
     runs-on: ubuntu-latest

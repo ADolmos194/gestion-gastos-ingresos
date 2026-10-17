@@ -52,6 +52,15 @@ class User(AbstractBaseUser, PermissionsMixin):
     # (register_failed_attempt/unlock). Verificación de email es un estado independiente.
     email_verified = models.BooleanField(default=False)
 
+    # 2FA (TOTP, ver apps/autenticacion/two_factor.py): otp_secret se guarda al hacer el
+    # setup (aún deshabilitado) y se activa recién al confirmar el primer código.
+    otp_secret = models.CharField(max_length=64, blank=True, default="")
+    otp_enabled = models.BooleanField(default=False)
+    # Códigos de respaldo únicos (hash sha256 en JSON, NUNCA en claro). Se generan al activar
+    # 2FA o al regenerar, y se muestran por única vez en ese momento (ver two_factor.py). Si
+    # se pierden todos, un administrador tiene que resetear el 2FA de la cuenta.
+    otp_recovery_codes = models.JSONField(default=list, blank=True)
+
     # last_login lo gestiona AbstractBaseUser (se actualiza solo al iniciar sesión)
     last_logout = models.DateTimeField(null=True, blank=True)
 
@@ -103,6 +112,7 @@ class VerificationCode(models.Model):
     class Purpose(models.TextChoices):
         EMAIL_VERIFICATION = "email_verification", "Verificación de correo"
         PASSWORD_RESET = "password_reset", "Restablecimiento de contraseña"
+        CHANGE_EMAIL = "change_email", "Cambio de correo"
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="verification_codes")
